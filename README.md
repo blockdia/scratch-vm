@@ -1,6 +1,8 @@
-## TurboWarp/scratch-vm
+# @blockdia/scratch-vm
 
-Modified Scratch VM with a JIT compiler and more features.
+Blockdia's virtual machine, based on TurboWarp's modified Scratch VM with a JIT compiler and more features.
+
+The initial Blockdia `0.1.0` release is based on TurboWarp commit `c4823421cb7c17d8d8a89878851ce1668c26a21f`.
 
 This is a drop-in replacement for LLK/scratch-vm.
 

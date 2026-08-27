@@ -1,13 +1,20 @@
 {
-  "name": "scratch-vm",
-  "version": "2.1.46",
-  "description": "Virtual Machine for Scratch 3.0",
+  "name": "@blockdia/scratch-vm",
+  "version": "0.1.0",
+  "description": "Blockdia virtual machine based on TurboWarp and Scratch 3.0",
   "author": "Massachusetts Institute of Technology",
   "license": "MPL-2.0",
-  "homepage": "https://github.com/scratchfoundation/scratch-vm#readme",
+  "homepage": "https://github.com/blockdia/scratch-vm#readme",
   "repository": {
     "type": "git",
-    "url": "https://github.com/scratchfoundation/scratch-vm.git"
+    "url": "https://github.com/blockdia/scratch-vm.git"
+  },
+  "bugs": {
+    "url": "https://github.com/blockdia/scratch-vm/issues"
+  },
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
   },
   "main": "./src/index.js",
   "browser": "./src/index.js",
@@ -54,7 +61,7 @@
     "worker-loader": "^1.1.1"
   },
   "peerDependencies": {
-    "@turbowarp/scratch-svg-renderer": "^1.1.0"
+    "@blockdia/scratch-svg-renderer": "^0.1.0"
   },
   "devDependencies": {
     "@babel/core": "7.13.10",
@@ -90,6 +97,5 @@
     "webpack": "4.47.0",
     "webpack-cli": "3.1.0",
     "webpack-dev-server": "3.11.2"
-  },
-  "private": true
+  }
 }

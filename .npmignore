@@ -17,3 +17,4 @@
 
 # Exclude already built packages from testing with npm pack
 /scratch-vm-*.{tar,tgz}
+/blockdia-scratch-vm-*.tgz
