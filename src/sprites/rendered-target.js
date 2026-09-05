@@ -4,6 +4,8 @@ const Cast = require('../util/cast');
 const Clone = require('../util/clone');
 const Target = require('../engine/target');
 const StageLayering = require('../engine/stage-layering');
+const ComponentModel = require('../components/model');
+const ComponentController = require('../components/controller');
 
 /**
  * Rendered target: instance of a sprite (clone), or the stage.
@@ -36,6 +38,9 @@ class RenderedTarget extends Target {
          * @type {?Number}
          */
         this.drawableID = null;
+        this.component = null;
+        this.componentController = null;
+        this.componentError = null;
 
         /**
          * Drag state of this rendered target. If true, x/y position can't be
@@ -176,7 +181,8 @@ class RenderedTarget extends Target {
      */
     initDrawable (layerGroup) {
         if (this.renderer) {
-            this.drawableID = this.renderer.createDrawable(layerGroup);
+            if (this.componentController) this.componentController.init();
+            else this.drawableID = this.renderer.createDrawable(layerGroup);
         }
         // If we're a clone, start the hats.
         if (!this.isOriginal) {
@@ -184,6 +190,51 @@ class RenderedTarget extends Target {
                 'control_start_as_clone', null, this
             );
         }
+    }
+
+    setComponent (config) {
+        if (this.isStage) throw new Error('The stage cannot be a component');
+        const next = ComponentModel.normalize(config, this.getCostumes().length);
+        if (this.renderer && !this.renderer.createDrawableGroup) {
+            throw new Error('Components require a renderer with drawable group support');
+        }
+        const order = this.getLayerOrder();
+        if (this.componentController) this.componentController.dispose();
+        else if (this.renderer && this.drawableID !== null) {
+            this.renderer.destroyDrawable(this.drawableID, StageLayering.SPRITE_LAYER);
+        }
+        this.component = next;
+        this.componentError = null;
+        this.componentController = new ComponentController(this);
+        this.componentController.sync();
+        if (this.renderer && order !== null) {
+            this.renderer.setDrawableGroupOrder(this.componentController.group, order === 0 ? -Infinity : order);
+        }
+        this.runtime.requestRedraw();
+        this.runtime.requestTargetsUpdate(this);
+    }
+
+    getDrawableIDs (collisionOnly = false) {
+        return this.componentController ? this.componentController.ids(collisionOnly) : [this.drawableID];
+    }
+
+    _componentBounds () {
+        const bounds = this.getDrawableIDs().map(id => this.renderer.getBounds(id));
+        return {
+            left: Math.min(...bounds.map(b => b.left)),
+            right: Math.max(...bounds.map(b => b.right)),
+            bottom: Math.min(...bounds.map(b => b.bottom)),
+            top: Math.max(...bounds.map(b => b.top))
+        };
+    }
+
+    _componentFence (x, y) {
+        const bounds = this._componentBounds();
+        const inset = Math.min(15, Math.floor(Math.min(bounds.right - bounds.left, bounds.top - bounds.bottom) / 2));
+        const sx = (this.runtime.stageWidth / 2) - inset;
+        const sy = (this.runtime.stageHeight / 2) - inset;
+        return [MathUtil.clamp(x, this.x - sx - bounds.right, this.x + sx - bounds.left),
+            MathUtil.clamp(y, this.y - sy - bounds.top, this.y + sy - bounds.bottom)];
     }
 
     get audioPlayer () {
@@ -267,12 +318,14 @@ class RenderedTarget extends Target {
         const oldY = this.y;
         if (this.renderer) {
             const position = this.runtime.runtimeOptions.fencing ?
-                this.renderer.getFencedPositionOfDrawable(this.drawableID, [x, y]) :
+                (this.componentController ? this._componentFence(x, y) :
+                    this.renderer.getFencedPositionOfDrawable(this.drawableID, [x, y])) :
                 [x, y];
             this.x = position[0];
             this.y = position[1];
 
             this.renderer.updateDrawablePosition(this.drawableID, position);
+            if (this.componentController) this.componentController.sync();
             if (this.visible) {
                 this.emitVisualChange();
                 this.runtime.requestRedraw();
@@ -323,6 +376,7 @@ class RenderedTarget extends Target {
         if (this.renderer) {
             const {direction: renderedDirection, scale} = this._getRenderedDirectionAndScale();
             this.renderer.updateDrawableDirectionScale(this.drawableID, renderedDirection, scale);
+            if (this.componentController) this.componentController.sync();
             if (this.visible) {
                 this.emitVisualChange();
                 this.runtime.requestRedraw();
@@ -350,8 +404,10 @@ class RenderedTarget extends Target {
             return;
         }
         this.visible = !!visible;
+        if (!this.visible && this.componentController) this.componentController.cancel();
         if (this.renderer) {
             this.renderer.updateDrawableVisible(this.drawableID, this.visible);
+            if (this.componentController) this.componentController.sync();
             if (this.visible) {
                 this.emitVisualChange();
                 this.runtime.requestRedraw();
@@ -371,7 +427,12 @@ class RenderedTarget extends Target {
         if (this.renderer) {
             // Clamp to scales relative to costume and stage size.
             // See original ScratchSprite.as:setSize.
-            const costumeSize = this.renderer.getCurrentSkinSize(this.drawableID);
+            let costumeSize = this.renderer.getCurrentSkinSize(this.drawableID);
+            if (this.componentController && this.size > 0) {
+                const bounds = this._componentBounds();
+                costumeSize = [(bounds.right - bounds.left) * 100 / this.size,
+                    (bounds.top - bounds.bottom) * 100 / this.size];
+            }
             const origW = costumeSize[0];
             const origH = costumeSize[1];
             const fencing = this.runtime.runtimeOptions.fencing;
@@ -383,6 +444,7 @@ class RenderedTarget extends Target {
             this.size = MathUtil.clamp(size / 100, minScale, maxScale) * 100;
             const {direction, scale} = this._getRenderedDirectionAndScale();
             this.renderer.updateDrawableDirectionScale(this.drawableID, direction, scale);
+            if (this.componentController) this.componentController.sync();
             if (this.visible) {
                 this.emitVisualChange();
                 this.runtime.requestRedraw();
@@ -405,6 +467,7 @@ class RenderedTarget extends Target {
         this.effects[effectName] = value;
         if (this.renderer) {
             this.renderer.updateDrawableEffect(this.drawableID, effectName, value);
+            if (this.componentController) this.componentController.sync();
             if (this.visible) {
                 this.emitVisualChange();
                 this.runtime.requestRedraw();
@@ -425,6 +488,7 @@ class RenderedTarget extends Target {
                 if (!Object.prototype.hasOwnProperty.call(this.effects, effectName)) continue;
                 this.renderer.updateDrawableEffect(this.drawableID, effectName, 0);
             }
+            if (this.componentController) this.componentController.sync();
             if (this.visible) {
                 this.emitVisualChange();
                 this.runtime.requestRedraw();
@@ -450,6 +514,7 @@ class RenderedTarget extends Target {
             const costume = this.sprite.costumes[this.currentCostume];
             this.renderer.updateDrawableSkinId(this.drawableID, costume.skinId);
 
+            if (this.componentController) this.componentController.sync();
             if (this.visible) {
                 this.emitVisualChange();
                 this.runtime.requestRedraw();
@@ -464,6 +529,15 @@ class RenderedTarget extends Target {
      * @param {?int} index Index at which to add costume
      */
     addCostume (costumeObject, index) {
+        if (Number.isInteger(index)) {
+            for (const target of this.sprite.clones) {
+                if (target.componentController) {
+                    for (const part of target.component.parts) {
+                        if (part.costumeIndex >= index) part.costumeIndex++;
+                    }
+                }
+            }
+        }
         if (typeof index === 'number' && !isNaN(index)) {
             this.sprite.addCostumeAt(costumeObject, index);
         } else {
@@ -506,6 +580,8 @@ class RenderedTarget extends Target {
      * this target only has one costume.
      */
     deleteCostume (index) {
+        if (this.sprite.clones.some(target => target.componentController &&
+            target.component.parts.some(part => part.costumeIndex === index))) return null;
         const originalCostumeCount = this.sprite.costumes.length;
         if (originalCostumeCount === 1) return null;
 
@@ -514,6 +590,13 @@ class RenderedTarget extends Target {
         }
 
         const deletedCostume = this.sprite.deleteCostumeAt(index);
+        for (const target of this.sprite.clones) {
+            if (target.componentController) {
+                for (const part of target.component.parts) {
+                    if (part.costumeIndex > index) part.costumeIndex--;
+                }
+            }
+        }
 
         if (index === this.currentCostume && index === originalCostumeCount - 1) {
             this.setCostume(index - 1);
@@ -588,6 +671,7 @@ class RenderedTarget extends Target {
         if (this.renderer) {
             const {direction, scale} = this._getRenderedDirectionAndScale();
             this.renderer.updateDrawableDirectionScale(this.drawableID, direction, scale);
+            if (this.componentController) this.componentController.sync();
             if (this.visible) {
                 this.emitVisualChange();
                 this.runtime.requestRedraw();
@@ -645,7 +729,17 @@ class RenderedTarget extends Target {
         // Use the sprite method for deleting costumes because setCostume is handled manually
         this.sprite.deleteCostumeAt(costumeIndex);
 
-        this.addCostume(costume, newIndex);
+        this.sprite.addCostumeAt(costume, newIndex);
+        for (const target of this.sprite.clones) {
+            if (target.componentController) {
+                for (const part of target.component.parts) {
+                    const index = part.costumeIndex;
+                    if (index === costumeIndex) part.costumeIndex = newIndex;
+                    else if (costumeIndex < newIndex && index > costumeIndex && index <= newIndex) part.costumeIndex--;
+                    else if (newIndex < costumeIndex && index >= newIndex && index < costumeIndex) part.costumeIndex++;
+                }
+            }
+        }
         this.currentCostume = this.getCostumeIndexByName(currentCostume.name);
         return true;
     }
@@ -681,6 +775,12 @@ class RenderedTarget extends Target {
      * Use when a batch has changed, e.g., when the drawable is first created.
      */
     updateAllDrawableProperties () {
+        if (this.componentController) {
+            this.componentController.sync();
+            this.runtime.requestRedraw();
+            this.runtime.requestTargetsUpdate(this);
+            return;
+        }
         if (this.renderer) {
             const {direction, scale} = this._getRenderedDirectionAndScale();
             this.renderer.updateDrawablePosition(this.drawableID, [this.x, this.y]);
@@ -727,7 +827,8 @@ class RenderedTarget extends Target {
      */
     getBounds () {
         if (this.renderer) {
-            return this.runtime.renderer.getBounds(this.drawableID);
+            return this.componentController ? this._componentBounds() :
+                this.runtime.renderer.getBounds(this.drawableID);
         }
         return null;
     }
@@ -739,7 +840,8 @@ class RenderedTarget extends Target {
      */
     getBoundsForBubble () {
         if (this.renderer) {
-            return this.runtime.renderer.getBoundsForBubble(this.drawableID);
+            return this.componentController ? this._componentBounds() :
+                this.runtime.renderer.getBoundsForBubble(this.drawableID);
         }
         return null;
     }
@@ -769,7 +871,7 @@ class RenderedTarget extends Target {
      */
     isTouchingPoint (x, y) {
         if (this.renderer) {
-            return this.renderer.drawableTouching(this.drawableID, x, y);
+            return this.getDrawableIDs(true).some(id => this.renderer.drawableTouching(id, x, y));
         }
         return false;
     }
@@ -807,10 +909,9 @@ class RenderedTarget extends Target {
         // Filter out dragging targets. This means a sprite that is being dragged
         // can detect other sprites using touching <sprite>, but cannot be detected
         // by other sprites while it is being dragged. This matches Scratch 2.0 behavior.
-        const drawableCandidates = firstClone.sprite.clones.filter(clone => !clone.dragging)
-            .map(clone => clone.drawableID);
-        return this.renderer.isTouchingDrawables(
-            this.drawableID, drawableCandidates);
+        const drawableCandidates = firstClone.sprite.clones.filter(clone => !clone.dragging && clone !== this)
+            .reduce((ids, clone) => ids.concat(clone.getDrawableIDs(true)), []);
+        return this.getDrawableIDs(true).some(id => this.renderer.isTouchingDrawables(id, drawableCandidates));
     }
 
     /**
@@ -820,7 +921,8 @@ class RenderedTarget extends Target {
      */
     isTouchingColor (rgb) { // used by compiler
         if (this.renderer) {
-            return this.renderer.isTouchingColor(this.drawableID, rgb);
+            return this.getDrawableIDs(true).some(id =>
+                this.renderer.isTouchingColor(id, rgb, null, this.getDrawableIDs()));
         }
         return false;
     }
@@ -833,11 +935,8 @@ class RenderedTarget extends Target {
      */
     colorIsTouchingColor (targetRgb, maskRgb) { // used by compiler
         if (this.renderer) {
-            return this.renderer.isTouchingColor(
-                this.drawableID,
-                targetRgb,
-                maskRgb
-            );
+            return this.getDrawableIDs(true).some(id =>
+                this.renderer.isTouchingColor(id, targetRgb, maskRgb, this.getDrawableIDs()));
         }
         return false;
     }
@@ -979,6 +1078,13 @@ class RenderedTarget extends Target {
         newClone.effects = Clone.simple(this.effects);
         newClone.variables = this.duplicateVariables();
         newClone._edgeActivatedHatValues = Clone.simple(this._edgeActivatedHatValues);
+        if (this.componentController) {
+            newClone.component = ComponentModel.copy(this.component);
+            newClone.componentController = new ComponentController(newClone);
+        } else if (this.component) {
+            newClone.component = ComponentModel.copy(this.component);
+            newClone.componentError = this.componentError;
+        }
         newClone.initDrawable(StageLayering.SPRITE_LAYER);
         newClone.updateAllDrawableProperties();
         return newClone;
@@ -1003,6 +1109,8 @@ class RenderedTarget extends Target {
             newTarget.rotationStyle = this.rotationStyle;
             newTarget.effects = JSON.parse(JSON.stringify(this.effects));
             newTarget.variables = this.duplicateVariables(newTarget.blocks);
+            if (this.componentController) newTarget.setComponent(this.component);
+            else if (this.component) newTarget.component = ComponentModel.copy(this.component);
             newTarget.updateAllDrawableProperties();
             return newTarget;
         });
@@ -1021,6 +1129,7 @@ class RenderedTarget extends Target {
      * Stop all sounds and clear graphic effects.
      */
     onStopAll () {
+        if (this.componentController) this.componentController.cancel();
         this.clearEffects();
     }
 
@@ -1074,6 +1183,8 @@ class RenderedTarget extends Target {
     toJSON () {
         const costumes = this.getCostumes();
         return {
+            component: this.component ? ComponentModel.copy(this.component) : null,
+            componentError: this.componentError,
             id: this.id,
             name: this.getName(),
             isStage: this.isStage,
@@ -1112,9 +1223,12 @@ class RenderedTarget extends Target {
         this.runtime.removeExecutable(this);
         this.sprite.removeClone(this);
         if (this.renderer && this.drawableID !== null) {
-            this.renderer.destroyDrawable(this.drawableID, this.isStage ?
-                StageLayering.BACKGROUND_LAYER :
-                StageLayering.SPRITE_LAYER);
+            if (this.componentController) this.componentController.dispose();
+            else {
+                this.renderer.destroyDrawable(this.drawableID, this.isStage ?
+                    StageLayering.BACKGROUND_LAYER :
+                    StageLayering.SPRITE_LAYER);
+            }
             if (this.visible) {
                 this.emitVisualChange();
                 this.runtime.requestRedraw();

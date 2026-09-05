@@ -49,7 +49,8 @@ class Mouse {
             for (let i = 0; i < this.runtime.targets.length; i++) {
                 const target = this.runtime.targets[i];
                 if (Object.prototype.hasOwnProperty.call(target, 'drawableID') &&
-                    target.drawableID === drawableID) {
+                    (target.drawableID === drawableID ||
+                        (target.componentController && target.getDrawableIDs().includes(drawableID)))) {
                     return target;
                 }
             }

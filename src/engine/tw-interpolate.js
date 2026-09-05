@@ -6,6 +6,13 @@ const setupInitialState = runtime => {
     const renderer = runtime.renderer;
 
     for (const target of runtime.targets) {
+        // Component parts must remain in one transform space. Until group interpolation is
+        // available, render these targets at their VM frame position.
+        if (target.componentController) {
+            target.componentController.sync();
+            target.interpolationData = null;
+            continue;
+        }
         const directionAndScale = target._getRenderedDirectionAndScale();
 
         // If sprite may have been interpolated in the previous frame, reset its renderer state.

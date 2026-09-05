@@ -1,0 +1,116 @@
+const Model = require('./model');
+const StageLayering = require('../engine/stage-layering');
+
+class ComponentController {
+    constructor (target) {
+        this.target = target;
+        this.group = null;
+        this.parts = new Map();
+        this.pressed = false;
+    }
+
+    init () {
+        const renderer = this.target.renderer;
+        if (!renderer || this.group !== null) return;
+        if (!renderer.createDrawableGroup) throw new Error('Components require a renderer with drawable group support');
+        this.group = renderer.createDrawableGroup(StageLayering.SPRITE_LAYER, this.target.component.parts.length);
+        const ids = renderer.getDrawableGroupMembers(this.group);
+        this.target.component.parts.forEach((part, index) => this.parts.set(part.name, ids[index]));
+        this.target.drawableID = ids[0];
+    }
+
+    ids (collisionOnly = false) {
+        return this.target.component.parts.filter(part => !collisionOnly || (part.collision &&
+            (part.name !== 'mark' || this.target.component.properties.checked) &&
+            (part.name !== 'fill' || this.target.component.properties.value > this.target.component.properties.min)))
+            .map(part => this.parts.get(part.name))
+            .filter(id => typeof id === 'number');
+    }
+
+    localPoint (x, y) {
+        const target = this.target;
+        const {direction, scale} = target._getRenderedDirectionAndScale();
+        const angle = (90 - direction) * Math.PI / 180;
+        const dx = x - target.x;
+        const dy = y - target.y;
+        if (!scale[0] || !scale[1]) return null;
+        return [((dx * Math.cos(angle)) + (dy * Math.sin(angle))) * 100 / scale[0],
+            ((-dx * Math.sin(angle)) + (dy * Math.cos(angle))) * 100 / scale[1]];
+    }
+
+    sync () {
+        const target = this.target;
+        if (!target.renderer) return;
+        this.init();
+        const {direction, scale} = target._getRenderedDirectionAndScale();
+        const angle = (90 - direction) * Math.PI / 180;
+        const config = target.component;
+        const p = config.properties;
+        const track = config.metadata.sliderTrack;
+        const ratio = track ? (p.value - p.min) / (p.max - p.min) : 0;
+        for (const part of config.parts) {
+            let x = 0;
+            let y = 0;
+            let rotation = 0;
+            let sx = 1;
+            let shown = true;
+            if (part.name === 'thumb') {
+                x = track.start[0] + ((track.end[0] - track.start[0]) * ratio);
+                y = track.start[1] + ((track.end[1] - track.start[1]) * ratio);
+            } else if (part.name === 'fill') {
+                x = track.start[0];
+                y = track.start[1];
+                rotation = Math.atan2(track.end[1] - y, track.end[0] - x) * 180 / Math.PI;
+                const costume = target.getCostumes()[part.costumeIndex];
+                const width = target.renderer.getSkinSize(costume.skinId)[0];
+                sx = width ? Math.hypot(track.end[0] - x, track.end[1] - y) * ratio / width : 0;
+                shown = ratio > 0;
+            } else if (part.name === 'mark') {
+                shown = p.checked;
+            }
+            const id = this.parts.get(part.name);
+            const px = x * scale[0] / 100;
+            const py = y * scale[1] / 100;
+            target.renderer.updateDrawableSkinId(id, target.getCostumes()[part.costumeIndex].skinId);
+            target.renderer.updateDrawablePosition(id, [target.x + (px * Math.cos(angle)) - (py * Math.sin(angle)),
+                target.y + (px * Math.sin(angle)) + (py * Math.cos(angle))]);
+            const mirror = scale[0] < 0 ? -1 : 1;
+            target.renderer.updateDrawableDirectionScale(id, direction - (rotation * mirror),
+                [scale[0] * sx, scale[1]]);
+            target.renderer.updateDrawableVisible(id, target.visible && shown);
+            for (const effect of Object.keys(target.effects)) {
+                target.renderer.updateDrawableEffect(id, effect, target.effects[effect]);
+            }
+        }
+    }
+
+    setProperties (patch, emit = true) {
+        const target = this.target;
+        const previous = target.component.properties;
+        const next = Model.copy(target.component);
+        Object.assign(next.properties, patch);
+        target.component = Model.normalize(next, target.getCostumes().length);
+        this.sync();
+        target.runtime.requestRedraw();
+        target.runtime.requestTargetsUpdate(target);
+        if (emit) {
+            for (const [key, opcode] of [['value', 'components_whenValueChanged'],
+                ['checked', 'components_whenStateChanged']]) {
+                if (previous[key] !== target.component.properties[key]) target.runtime.startHats(opcode, null, target);
+            }
+        }
+    }
+
+    cancel () {
+        this.pressed = false;
+    }
+
+    dispose () {
+        this.cancel();
+        if (this.group !== null) this.target.renderer.destroyDrawableGroup(this.group);
+        this.group = null;
+        this.parts.clear();
+    }
+}
+
+module.exports = ComponentController;

@@ -568,6 +568,7 @@ const serializeTarget = function (target, extensions) {
         target.currentCostume = MathUtil.clamp(target.currentCostume, 0, target.costumes.length - 1);
     }
 
+    if (!target.isStage && target.component) obj.component = JSON.parse(JSON.stringify(target.component));
     obj.currentCostume = target.currentCostume;
     obj.costumes = target.costumes.map(serializeCostume);
     obj.sounds = target.sounds.map(serializeSound);
@@ -1339,7 +1340,18 @@ const parseScratchObject = function (object, runtime, extensions, zip, assets) {
         // Make sure if soundBank is undefined, sprite.soundBank is then null.
         sprite.soundBank = soundBank || null;
     });
-    return Promise.all(costumePromises.concat(soundPromises)).then(() => target);
+    return Promise.all(costumePromises.concat(soundPromises)).then(() => {
+        if (object.component && !target.isStage) {
+            try {
+                target.setComponent(object.component);
+            } catch (error) {
+                target.component = JSON.parse(JSON.stringify(object.component));
+                target.componentError = error.message;
+                log.warn(`Component disabled: ${error.message}`);
+            }
+        }
+        return target;
+    });
 };
 
 const deserializeMonitor = function (monitorData, runtime, targets, extensions) {

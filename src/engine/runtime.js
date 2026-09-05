@@ -3213,7 +3213,8 @@ class Runtime extends EventEmitter {
     getTargetByDrawableId (drawableID) {
         for (let i = 0; i < this.targets.length; i++) {
             const target = this.targets[i];
-            if (target.drawableID === drawableID) return target;
+            if (target.drawableID === drawableID ||
+                (target.componentController && target.getDrawableIDs().includes(drawableID))) return target;
         }
     }
 
