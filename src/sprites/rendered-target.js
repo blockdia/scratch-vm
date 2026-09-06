@@ -1166,6 +1166,9 @@ class RenderedTarget extends Target {
      */
     startDrag () {
         this.dragging = true;
+        // The standard target drag owns this gesture from now on. Do not let a
+        // pending component interaction resume when stopDrag runs before mouse-up.
+        if (this.componentController) this.componentController.cancel();
     }
 
     /**

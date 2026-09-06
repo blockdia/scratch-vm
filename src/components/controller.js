@@ -114,7 +114,7 @@ class ComponentController {
     pointer (data, x, y) {
         const target = this.target;
         const config = target.component;
-        if (!target.visible || target.dragging || target.draggable || config.properties.disabled || data.cancelled) {
+        if (!target.visible || target.dragging || config.properties.disabled || data.cancelled || data.wasDragged) {
             this.cancel();
             return;
         }

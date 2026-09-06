@@ -148,3 +148,44 @@ test('button, toggle, progress and block setters', t => {
     t.notOk(target.componentController.pressed);
     t.end();
 });
+
+test('draggable components keep click behavior and standard drag cancels only the active gesture', t => {
+    const {runtime, target, renderer} = setup();
+    renderer.pick = () => target.drawableID;
+    renderer.drawableTouching = () => true;
+    const events = [];
+    runtime.startHats = opcode => events.push(opcode);
+    const post = data => runtime.ioDevices.mouse.postData(Object.assign({x: 240,
+        y: 180,
+        canvasWidth: 480,
+        canvasHeight: 360}, data));
+    for (const draggable of [false, true]) {
+        target.setComponent(Model.create('button'));
+        target.setDraggable(draggable);
+        events.length = 0;
+        post({isDown: true});
+        t.equal(events.includes('event_whenthisspriteclicked'), !draggable, 'normal Scratch click timing');
+        post({isDown: false});
+        t.ok(events.includes('event_whenthisspriteclicked'), 'Scratch click hat still fires');
+        t.ok(events.includes('components_whenClicked'), 'component click fires for either draggable setting');
+        events.length = 0;
+        post({isDown: true});
+        target.startDrag();
+        t.equal(runtime.ioDevices.mouse.componentCapture, null, 'standard Target drag releases component capture');
+        target.stopDrag();
+        post({isDown: false, wasDragged: true});
+        t.notOk(events.includes('components_whenClicked'), 'drag release is not a component click');
+        t.equal(events.filter(opcode => opcode === 'event_whenthisspriteclicked').length, draggable ? 0 : 1,
+            'drag does not add or suppress ordinary click hats');
+    }
+    target.setComponent(Model.create('slider'));
+    target.setDraggable(true);
+    post({isDown: true});
+    post({x: 282});
+    t.equal(target.component.properties.value, 75, 'draggable alone does not disable internal input');
+    target.startDrag();
+    target.stopDrag();
+    post({x: 324, isDown: false, wasDragged: true});
+    t.equal(target.component.properties.value, 75, 'no late slider update after ordinary dragging');
+    t.end();
+});
