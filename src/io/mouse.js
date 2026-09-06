@@ -84,7 +84,8 @@ class Mouse {
         }
         if (this.componentHover) this.componentHover.hovered = false;
         this.componentHover = null;
-        if (Number.isFinite(data.x) && Number.isFinite(data.y) && !data.cancelled &&
+        if (this.runtime.targets.some(target => target.componentController) &&
+            Number.isFinite(data.x) && Number.isFinite(data.y) && !data.cancelled &&
             data.x > 0 && data.x < data.canvasWidth && data.y > 0 && data.y < data.canvasHeight) {
             const hovered = this._pickTarget(data.x, data.y);
             if (hovered && hovered.componentController) {
