@@ -1,5 +1,6 @@
 const test = require('tap').test;
 const Model = require('../../src/components/model');
+const Extension = require('../../src/extensions/scratch3_components');
 const Runtime = require('../../src/engine/runtime');
 const Sprite = require('../../src/sprites/sprite');
 const RenderWebGL = require('../fixtures/component-renderer');
@@ -89,5 +90,61 @@ test('sensing expands parts, excludes self, and costume references survive reord
     const saved = sb3.serialize(runtime);
     t.same(saved.targets[0].component, target.component);
     t.notOk(JSON.stringify(saved).includes('componentController'));
+    t.end();
+});
+
+test('pointer capture, stepping, event ownership and cancellation', t => {
+    const {runtime, target, renderer} = setup();
+    const events = [];
+    runtime.startHats = (opcode, fields, owner) => events.push([opcode, owner]);
+    renderer.pick = () => target.getDrawableIDs()[2];
+    renderer.drawableTouching = (id, x) => x >= 156 && x <= 324;
+    const mouse = runtime.ioDevices.mouse;
+    const post = data => mouse.postData(Object.assign({x: 240, y: 180, canvasWidth: 480, canvasHeight: 360}, data));
+    post({isDown: true});
+    post({x: 324});
+    t.equal(target.component.properties.value, 100);
+    t.equal(mouse.componentCapture, target.componentController);
+    t.ok(events.some(([opcode, owner]) => opcode === 'components_whenValueChanged' && owner === target));
+    const count = events.length;
+    post({x: 324});
+    t.equal(events.length, count, 'unchanged value does not retrigger hats');
+    post({x: 600, isDown: false});
+    t.equal(mouse.componentCapture, null, 'outside release clears capture');
+    post({isDown: true});
+    post({cancelled: true});
+    t.notOk(mouse.getIsDown());
+    t.notOk(target.componentController.pressed);
+    post({isDown: true});
+    target.setVisible(false);
+    t.equal(mouse.componentCapture, null);
+    t.end();
+});
+
+test('button, toggle, progress and block setters', t => {
+    const {runtime, target, renderer} = setup();
+    const extension = new Extension();
+    const util = {target};
+    const events = [];
+    runtime.startHats = opcode => events.push(opcode);
+    renderer.drawableTouching = () => true;
+    target.setComponent(Model.create('button'));
+    target.componentController.pointer({isDown: true, x: 240, y: 180}, 0, 0);
+    t.notOk(events.includes('components_whenClicked'));
+    target.componentController.pointer({isDown: false, x: 240, y: 180}, 0, 0);
+    t.same(events, ['components_whenClicked']);
+    target.setComponent(Model.create('toggle'));
+    extension.setChecked({CHECKED: 'false'}, util);
+    t.notOk(extension.isChecked({}, util));
+    extension.setChecked({CHECKED: true}, util);
+    t.ok(extension.isChecked({}, util));
+    target.componentController.setProperties({disabled: true});
+    target.componentController.pointer({isDown: true}, 0, 0);
+    t.notOk(target.componentController.pressed);
+    target.setComponent(Model.create('progress'));
+    extension.setValue({VALUE: 200}, util);
+    t.equal(extension.value({}, util), 100);
+    target.componentController.pointer({isDown: true}, 0, 0);
+    t.notOk(target.componentController.pressed);
     t.end();
 });

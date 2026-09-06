@@ -101,8 +101,51 @@ class ComponentController {
         }
     }
 
+    hitPart (name, x, y) {
+        const id = this.parts.get(name);
+        return typeof id === 'number' && this.target.renderer.drawableTouching(id, x, y);
+    }
+
+    pointer (data, x, y) {
+        const target = this.target;
+        const config = target.component;
+        if (!target.visible || target.dragging || target.draggable || config.properties.disabled || data.cancelled) {
+            this.cancel();
+            return;
+        }
+        if (data.isDown === true) {
+            if (config.type === 'progress') return;
+            this.pressed = true;
+            if (config.type === 'slider' && !config.properties.clickTrackToJump &&
+                !this.hitPart('thumb', data.x, data.y)) this.pressed = false;
+        }
+        if (!this.pressed) return;
+        if (config.type === 'slider') {
+            const point = this.localPoint(x, y);
+            if (point) {
+                const {start, end} = config.metadata.sliderTrack;
+                const dx = end[0] - start[0];
+                const dy = end[1] - start[1];
+                const ratio = Math.max(0, Math.min(1,
+                    (((point[0] - start[0]) * dx) + ((point[1] - start[1]) * dy)) / ((dx * dx) + (dy * dy))));
+                const p = config.properties;
+                this.setProperties({value: p.min + ((p.max - p.min) * ratio)});
+            }
+        }
+        if (data.isDown === false) {
+            const inside = target.isTouchingPoint(data.x, data.y);
+            this.cancel();
+            if (inside && !data.wasDragged) {
+                if (config.type === 'button') target.runtime.startHats('components_whenClicked', null, target);
+                if (config.type === 'toggle') this.setProperties({checked: !config.properties.checked});
+            }
+        }
+    }
+
     cancel () {
         this.pressed = false;
+        const mouse = this.target.runtime.ioDevices.mouse;
+        if (mouse && mouse.componentCapture === this) mouse.componentCapture = null;
     }
 
     dispose () {

@@ -11,6 +11,7 @@ class Mouse {
         this._buttons = new Set();
         this.usesRightClickDown = false;
         this._isDown = false;
+        this.componentCapture = null;
         /**
          * Reference to the owning Runtime.
          * Can be used, for example, to activate hats.
@@ -79,6 +80,23 @@ class Mouse {
                 -(this.runtime.stageHeight / 2),
                 (this.runtime.stageHeight / 2)
             );
+        }
+        // Components capture the primary pointer before normal click-hat routing.
+        // Release is processed even outside the stage or after GUI dragging.
+        if (data.cancelled) {
+            if (this.componentCapture) this.componentCapture.cancel();
+            this._buttons.clear();
+            this._isDown = false;
+            return;
+        }
+        if (data.isDown === true && (!data.button || data.button === 0) &&
+            data.x > 0 && data.x < data.canvasWidth && data.y > 0 && data.y < data.canvasHeight) {
+            const target = this._pickTarget(data.x, data.y);
+            if (target && target.componentController) this.componentCapture = target.componentController;
+        }
+        if (this.componentCapture && (typeof data.button !== 'number' || data.button === 0)) {
+            this.componentCapture.pointer(data, this._scratchX, this._scratchY);
+            if (data.isDown === false) this.componentCapture = null;
         }
         if (typeof data.isDown !== 'undefined') {
             // If no button specified, default to left button for compatibility

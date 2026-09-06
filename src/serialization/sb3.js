@@ -568,7 +568,10 @@ const serializeTarget = function (target, extensions) {
         target.currentCostume = MathUtil.clamp(target.currentCostume, 0, target.costumes.length - 1);
     }
 
-    if (!target.isStage && target.component) obj.component = JSON.parse(JSON.stringify(target.component));
+    if (!target.isStage && target.component) {
+        obj.component = JSON.parse(JSON.stringify(target.component));
+        extensions.add('components');
+    }
     obj.currentCostume = target.currentCostume;
     obj.costumes = target.costumes.map(serializeCostume);
     obj.sounds = target.sounds.map(serializeSound);
@@ -1343,6 +1346,7 @@ const parseScratchObject = function (object, runtime, extensions, zip, assets) {
     return Promise.all(costumePromises.concat(soundPromises)).then(() => {
         if (object.component && !target.isStage) {
             try {
+                extensions.extensionIDs.add('components');
                 target.setComponent(object.component);
             } catch (error) {
                 target.component = JSON.parse(JSON.stringify(object.component));

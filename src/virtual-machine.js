@@ -15,6 +15,8 @@ const MathUtil = require('./util/math-util');
 const Runtime = require('./engine/runtime');
 const RenderedTarget = require('./sprites/rendered-target');
 const Sprite = require('./sprites/sprite');
+const createComponentTemplate = require('./components/templates');
+const ComponentModel = require('./components/model');
 const StringUtil = require('./util/string-util');
 const formatMessage = require('format-message');
 
@@ -843,6 +845,38 @@ class VirtualMachine extends EventEmitter {
             this.runtime.setEditingTarget(this.editingTarget);
             this.runtime.ioDevices.cloud.setStage(this.runtime.getTargetForStage());
         });
+    }
+
+    /**
+     * Create a built-in component sprite using editable vector costumes.
+     * @param {string} type Built-in component type.
+     * @param {string} name Localized sprite name.
+     * @returns {Promise} Resolves after the sprite and blocks are installed.
+     */
+    addComponent (type, name) {
+        if (!this.runtime.storage) return Promise.reject(new Error('Components require asset storage'));
+        const sprite = createComponentTemplate(type, this.runtime.storage, name);
+        const load = this.extensionManager.isExtensionLoaded('components') ? Promise.resolve() :
+            this.extensionManager.loadExtensionURL('components');
+        return load.then(() => this.addSprite(sprite));
+    }
+
+    setComponentProperties (targetId, properties) {
+        const target = this.runtime.getTargetById(targetId);
+        if (!target || !target.componentController) throw new Error('Target is not an active component');
+        target.componentController.setProperties(properties);
+        this.emitTargetsUpdate();
+    }
+
+    setComponentMetadata (targetId, metadata) {
+        const target = this.runtime.getTargetById(targetId);
+        if (!target || !target.componentController) throw new Error('Target is not an active component');
+        const config = ComponentModel.copy(target.component);
+        config.metadata = metadata;
+        target.component = ComponentModel.normalize(config, target.getCostumes().length);
+        target.componentController.sync();
+        this.runtime.requestRedraw();
+        this.emitTargetsUpdate();
     }
 
     /**
