@@ -34,7 +34,9 @@ const normalize = (input, costumeCount) => {
         }
     }
     if ('min' in properties) {
-        if (properties.max <= properties.min) throw new Error('Maximum must exceed minimum');
+        if (properties.max <= properties.min || !Number.isFinite(properties.max - properties.min)) {
+            throw new Error('Maximum must exceed minimum within a finite range');
+        }
         if ('step' in properties && properties.step < 0) throw new Error('Step cannot be negative');
         properties.value = normalizeValue(properties, properties.value);
     }
@@ -48,7 +50,8 @@ const normalize = (input, costumeCount) => {
         const track = config.metadata && config.metadata.sliderTrack;
         if (!track || ![track.start, track.end].every(point => Array.isArray(point) && point.length === 2 &&
             point.every(Number.isFinite)) ||
-            (track.start[0] === track.end[0] && track.start[1] === track.end[1])) {
+            (track.start[0] === track.end[0] && track.start[1] === track.end[1]) ||
+            !Number.isFinite(Math.hypot(track.end[0] - track.start[0], track.end[1] - track.start[1]))) {
             throw new Error('Track endpoints must be finite and distinct');
         }
     }

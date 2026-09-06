@@ -5,7 +5,8 @@ const track = svg(180, 12, '<rect width="180" height="12" rx="6" fill="#d6deea"/
 const fill = svg(168, 12, '<rect width="168" height="12" rx="6" fill="#4c97ff"/>');
 const thumb = svg(28, 28, '<circle cx="14" cy="14" r="12" fill="#ffffff" stroke="#4c97ff" stroke-width="3"/>');
 const body = svg(104, 40, '<rect width="104" height="40" rx="9" fill="#4c97ff"/>');
-const toggle = svg(48, 32, '<rect width="48" height="32" rx="16" fill="#a8b4c5"/>');
+const toggle = svg(48, 32,
+    '<rect width="48" height="32" rx="16" fill="#a8b4c5"/><circle cx="16" cy="16" r="12" fill="white"/>');
 const mark = svg(48, 32,
     '<rect width="48" height="32" rx="16" fill="#4c97ff"/><circle cx="32" cy="16" r="12" fill="white"/>');
 
@@ -18,9 +19,11 @@ const templates = {
 
 module.exports = (type, storage, name) => {
     const component = Model.create(type);
+    const assets = [];
     const costumes = templates[type].map(([image, rotationCenterX, rotationCenterY], index) => {
         const asset = storage.createAsset(storage.AssetType.ImageVector, storage.DataFormat.SVG,
             new TextEncoder().encode(image), null, true);
+        assets.push(asset);
         return {name: component.parts[index].name,
             assetId: asset.assetId,
             dataFormat: 'svg',
@@ -29,7 +32,7 @@ module.exports = (type, storage, name) => {
             rotationCenterX,
             rotationCenterY};
     });
-    return {isStage: false,
+    const sprite = {isStage: false,
         name: name || type,
         variables: {},
         lists: {},
@@ -48,4 +51,5 @@ module.exports = (type, storage, name) => {
         draggable: false,
         rotationStyle: 'all around',
         component};
+    return {sprite, assets};
 };

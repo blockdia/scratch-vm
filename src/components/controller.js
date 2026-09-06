@@ -7,6 +7,7 @@ class ComponentController {
         this.group = null;
         this.parts = new Map();
         this.pressed = false;
+        this.hovered = false;
     }
 
     init () {
@@ -89,8 +90,12 @@ class ComponentController {
         const previous = target.component.properties;
         const next = Model.copy(target.component);
         Object.assign(next.properties, patch);
-        target.component = Model.normalize(next, target.getCostumes().length);
+        const normalized = Model.normalize(next, target.getCostumes().length);
+        if (Object.keys(previous).every(key => previous[key] === normalized.properties[key])) return;
+        target.component = normalized;
+        if (normalized.properties.disabled) this.cancel();
         this.sync();
+        target.emitVisualChange();
         target.runtime.requestRedraw();
         target.runtime.requestTargetsUpdate(target);
         if (emit) {
@@ -146,6 +151,8 @@ class ComponentController {
         this.pressed = false;
         const mouse = this.target.runtime.ioDevices.mouse;
         if (mouse && mouse.componentCapture === this) mouse.componentCapture = null;
+        if (mouse && mouse.componentHover === this) mouse.componentHover = null;
+        this.hovered = false;
     }
 
     dispose () {

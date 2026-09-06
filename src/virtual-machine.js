@@ -855,10 +855,13 @@ class VirtualMachine extends EventEmitter {
      */
     addComponent (type, name) {
         if (!this.runtime.storage) return Promise.reject(new Error('Components require asset storage'));
-        const sprite = createComponentTemplate(type, this.runtime.storage, name);
+        const {sprite, assets} = createComponentTemplate(type, this.runtime.storage, name);
+        const zip = new JSZip();
+        zip.file('sprite.json', JSON.stringify(sprite));
+        for (const asset of assets) zip.file(`${asset.assetId}.${asset.dataFormat}`, asset.data);
         const load = this.extensionManager.isExtensionLoaded('components') ? Promise.resolve() :
             this.extensionManager.loadExtensionURL('components');
-        return load.then(() => this.addSprite(sprite));
+        return load.then(() => zip.generateAsync({type: 'uint8array'})).then(data => this.addSprite(data));
     }
 
     setComponentProperties (targetId, properties) {
@@ -1256,6 +1259,7 @@ class VirtualMachine extends EventEmitter {
             bitmapResolution,
             [rotationCenterX / bitmapResolution, rotationCenterY / bitmapResolution]
         );
+        this._syncComponentCostume(costume);
 
         // @todo there should be a better way to get from ImageData to a decodable storage format
         canvas.toBlob(blob => {
@@ -1299,6 +1303,16 @@ class VirtualMachine extends EventEmitter {
         );
     }
 
+    _syncComponentCostume (costume) {
+        for (const target of this.runtime.targets) {
+            if (target.componentController && target.getCostumes().includes(costume)) {
+                target.componentController.sync();
+                target.emitVisualChange();
+            }
+        }
+        this.runtime.requestRedraw();
+    }
+
     _updateSvg (costume, svg, rotationCenterX, rotationCenterY) {
         if (costume && costume.broken) delete costume.broken;
         if (costume && this.runtime && this.runtime.renderer) {
@@ -1306,6 +1320,7 @@ class VirtualMachine extends EventEmitter {
             costume.rotationCenterY = rotationCenterY;
             this.runtime.renderer.updateSVGSkin(costume.skinId, svg, [rotationCenterX, rotationCenterY]);
             costume.size = this.runtime.renderer.getSkinSize(costume.skinId);
+            this._syncComponentCostume(costume);
         }
         const storage = this.runtime.storage;
         // If we're in here, we've edited an svg in the vector editor,

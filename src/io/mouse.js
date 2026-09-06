@@ -12,6 +12,7 @@ class Mouse {
         this.usesRightClickDown = false;
         this._isDown = false;
         this.componentCapture = null;
+        this.componentHover = null;
         /**
          * Reference to the owning Runtime.
          * Can be used, for example, to activate hats.
@@ -80,6 +81,16 @@ class Mouse {
                 -(this.runtime.stageHeight / 2),
                 (this.runtime.stageHeight / 2)
             );
+        }
+        if (this.componentHover) this.componentHover.hovered = false;
+        this.componentHover = null;
+        if (Number.isFinite(data.x) && Number.isFinite(data.y) && !data.cancelled &&
+            data.x > 0 && data.x < data.canvasWidth && data.y > 0 && data.y < data.canvasHeight) {
+            const hovered = this._pickTarget(data.x, data.y);
+            if (hovered && hovered.componentController) {
+                this.componentHover = hovered.componentController;
+                this.componentHover.hovered = true;
+            }
         }
         // Components capture the primary pointer before normal click-hat routing.
         // Release is processed even outside the stage or after GUI dragging.
