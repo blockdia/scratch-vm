@@ -52,19 +52,20 @@ class ComponentController {
         for (const part of config.parts) {
             let x = 0;
             let y = 0;
-            let rotation = 0;
-            let sx = 1;
+            let clip = null;
             let shown = true;
             if (part.name === 'thumb') {
                 x = track.start[0] + ((track.end[0] - track.start[0]) * ratio);
                 y = track.start[1] + ((track.end[1] - track.start[1]) * ratio);
             } else if (part.name === 'fill') {
-                x = track.start[0];
-                y = track.start[1];
-                rotation = Math.atan2(track.end[1] - y, track.end[0] - x) * 180 / Math.PI;
-                const costume = target.getCostumes()[part.costumeIndex];
-                const width = target.renderer.getSkinSize(costume.skinId)[0];
-                sx = width ? Math.hypot(track.end[0] - x, track.end[1] - y) * ratio / width : 0;
+                if (ratio < 1) {
+                    const dx = track.end[0] - track.start[0];
+                    const dy = track.end[1] - track.start[1];
+                    const length = Math.hypot(dx, dy);
+                    const nx = dx / length;
+                    const ny = dy / length;
+                    clip = [nx, ny, (nx * track.start[0]) + (ny * track.start[1]) + (length * ratio)];
+                }
                 shown = ratio > 0;
             } else if (part.name === 'mark') {
                 shown = p.checked;
@@ -75,9 +76,8 @@ class ComponentController {
             target.renderer.updateDrawableSkinId(id, target.getCostumes()[part.costumeIndex].skinId);
             target.renderer.updateDrawablePosition(id, [target.x + (px * Math.cos(angle)) - (py * Math.sin(angle)),
                 target.y + (px * Math.sin(angle)) + (py * Math.cos(angle))]);
-            const mirror = scale[0] < 0 ? -1 : 1;
-            target.renderer.updateDrawableDirectionScale(id, direction - (rotation * mirror),
-                [scale[0] * sx, scale[1]]);
+            target.renderer.updateDrawableDirectionScale(id, direction, scale);
+            target.renderer.updateDrawableClipPlane(id, clip);
             target.renderer.updateDrawableVisible(id, target.visible && shown);
             for (const effect of Object.keys(target.effects)) {
                 target.renderer.updateDrawableEffect(id, effect, target.effects[effect]);

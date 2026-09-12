@@ -189,3 +189,25 @@ test('draggable components keep click behavior and standard drag cancels only th
     t.equal(target.component.properties.value, 75, 'no late slider update after ordinary dragging');
     t.end();
 });
+
+
+test('fill stays centered and unscaled while progress changes its clip', t => {
+    const {target, renderer} = setup();
+    const [track, fill] = target.getDrawableIDs().map(id => renderer._allDrawables[id]);
+    target.setDirection(0);
+    target.setSize(150);
+    target.componentController.setProperties({value: 25});
+    t.same(fill._position, track._position);
+    t.same(fill.scale, track.scale);
+    t.equal(fill.direction, track.direction);
+    t.same(fill.clipPlane, [1, 0, -42]);
+    target.componentController.setProperties({value: 100});
+    t.equal(fill.clipPlane, null, 'full value retains rounded end caps');
+    target.componentController.setProperties({value: 0});
+    t.notOk(fill._visible);
+    target.component.metadata.sliderTrack = {start: [0, -50], end: [0, 50]};
+    target.componentController.setProperties({value: 75});
+    t.same(fill.clipPlane, [0, 1, 25]);
+    t.same(fill._position, track._position, 'diagonal or vertical guides do not rotate the artwork');
+    t.end();
+});

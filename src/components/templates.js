@@ -2,7 +2,7 @@ const Model = require('./model');
 const svg = (width, height, body) =>
     `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}">${body}</svg>`;
 const track = svg(180, 12, '<rect width="180" height="12" rx="6" fill="#d6deea"/>');
-const fill = svg(168, 12, '<rect width="168" height="12" rx="6" fill="#4c97ff"/>');
+const fill = svg(180, 12, '<rect width="180" height="12" rx="6" fill="#4c97ff"/>');
 const thumb = svg(28, 28, '<circle cx="14" cy="14" r="12" fill="#ffffff" stroke="#4c97ff" stroke-width="3"/>');
 const body = svg(104, 40, '<rect width="104" height="40" rx="9" fill="#4c97ff"/>');
 const toggle = svg(48, 32,
@@ -11,10 +11,10 @@ const mark = svg(48, 32,
     '<rect width="48" height="32" rx="16" fill="#4c97ff"/><circle cx="32" cy="16" r="12" fill="white"/>');
 
 const templates = {
-    slider: [[track, 90, 6], [fill, 0, 6], [thumb, 14, 14]],
+    slider: [[track, 90, 6], [fill, 90, 6], [thumb, 14, 14]],
     button: [[body, 52, 20]],
     toggle: [[toggle, 24, 16], [mark, 24, 16]],
-    progress: [[track, 90, 6], [fill, 0, 6]]
+    progress: [[track, 90, 6], [fill, 90, 6]]
 };
 
 module.exports = (type, storage, name) => {
