@@ -211,3 +211,68 @@ test('fill stays centered and unscaled while progress changes its clip', t => {
     t.same(fill._position, track._position, 'diagonal or vertical guides do not rotate the artwork');
     t.end();
 });
+
+
+test('cross-component properties, menus, events and clone self resolution', t => {
+    const {runtime, target} = setup();
+    runtime.setEditingTarget(target);
+    const extension = new Extension(runtime);
+    const clone = target.makeClone();
+    runtime.targets.push(clone);
+    const util = {target: clone};
+    const events = [];
+    runtime.startHats = (opcode, fields, owner) => events.push([opcode, owner]);
+    extension.changeValue({VALUE: 5}, util);
+    t.equal(clone.component.properties.value, 55);
+    t.equal(target.component.properties.value, 50);
+    extension.changeTargetProperty({TARGET: 'Slider', PROPERTY: 'value', VALUE: 10}, util);
+    t.equal(target.component.properties.value, 60);
+    t.equal(events[1][1], target, 'change hats belong to the destination');
+    t.equal(extension.targetProperty({TARGET: '_myself_', PROPERTY: 'value'}, util), 55);
+    extension.setTargetProperty({TARGET: 'Slider', PROPERTY: 'max', VALUE: 70}, util);
+    extension.changeTargetProperty({TARGET: 'Slider', PROPERTY: 'value', VALUE: 99}, util);
+    t.equal(target.component.properties.value, 70, 'clamping uses standard component setter');
+    extension.setTargetProperty({TARGET: 'Slider', PROPERTY: 'min', VALUE: 100}, util);
+    t.equal(target.component.properties.min, 0, 'invalid ranges are ignored');
+    extension.setTargetProperty({TARGET: 'Slider', PROPERTY: 'step', VALUE: -1}, util);
+    t.equal(target.component.properties.step, 1);
+    t.equal(extension.targetProperty({TARGET: 'missing', PROPERTY: 'value'}, util), 0);
+    t.doesNotThrow(() => extension.setTargetProperty({TARGET: 'missing', PROPERTY: 'value', VALUE: 1}, util));
+    t.equal(extension.numericTargets().filter(item => item.value === 'Slider').length, 1,
+        'clones not duplicated in menu');
+    target.setComponent(Model.create('toggle'));
+    extension.setTargetChecked({TARGET: 'Slider', CHECKED: true}, util);
+    t.ok(extension.targetIsChecked({TARGET: 'Slider'}, util));
+    t.notOk(extension.targetIsChecked({TARGET: '_myself_'}, util));
+    t.equal(extension.targetProperty({TARGET: 'Slider', PROPERTY: 'value'}, util), 0);
+    target.sprite.name = 'Renamed';
+    t.ok(extension.toggleTargets().some(item => item.value === 'Renamed'));
+    t.notOk(extension.targetIsChecked({TARGET: 'Slider'}, util), 'names follow standard Scratch target lookup');
+    clone.dispose();
+    t.end();
+});
+
+
+test('component menu shadows follow sprite renames without rewriting text inputs', t => {
+    const {target} = setup();
+    for (const menu of ['numericTargets', 'toggleTargets']) {
+        target.blocks.createBlock({id: menu,
+            opcode: `components_menu_${menu}`,
+            inputs: {},
+            fields: {[menu]: {name: menu, value: 'Slider'}},
+            shadow: true,
+            topLevel: false});
+    }
+    target.blocks.createBlock({id: 'text',
+        opcode: 'text',
+        inputs: {},
+        fields: {TEXT: {name: 'TEXT', value: 'Slider'}},
+        shadow: true,
+        topLevel: false});
+    target.blocks.updateAssetName('Slider', 'Renamed', 'sprite');
+    for (const menu of ['numericTargets', 'toggleTargets']) {
+        t.equal(target.blocks.getBlock(menu).fields[menu].value, 'Renamed');
+    }
+    t.equal(target.blocks.getBlock('text').fields.TEXT.value, 'Slider');
+    t.end();
+});

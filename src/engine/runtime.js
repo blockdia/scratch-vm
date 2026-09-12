@@ -1719,7 +1719,7 @@ class Runtime extends EventEmitter {
             const {name, color1, color2} = categoryInfo;
             // Filter out blocks that aren't supposed to be shown on this target, as determined by the block info's
             // `hideFromPalette` and `filter` properties.
-            const paletteBlocks = categoryInfo.blocks.filter(block => {
+            let paletteBlocks = categoryInfo.blocks.filter(block => {
                 let blockFilterIncludesTarget = true;
                 // If an editing target is not passed, include all blocks
                 // If the block info doesn't include a `filter` property, always include it
@@ -1728,9 +1728,20 @@ class Runtime extends EventEmitter {
                         target.isStage ? TargetType.STAGE : TargetType.SPRITE
                     );
                 }
+                if (target && block.info.componentTypes) {
+                    blockFilterIncludesTarget = blockFilterIncludesTarget && Boolean(target.component &&
+                        !target.componentError && block.info.componentTypes.includes(target.component.type));
+                }
                 // If the block info's `hideFromPalette` is true, then filter out this block
                 return blockFilterIncludesTarget && !block.info.hideFromPalette;
             });
+
+            if (categoryInfo.id === 'components') {
+                // Filtering must not leave an empty group or a leading/trailing separator.
+                paletteBlocks = paletteBlocks.filter((block, index, blocks) => block.info !== '---' ||
+                    (blocks.slice(0, index).some(item => item.info !== '---') &&
+                    index + 1 < blocks.length && blocks[index + 1].info !== '---'));
+            }
 
             const colorXML = `colour="${xmlEscape(color1)}" secondaryColour="${xmlEscape(color2)}"`;
 

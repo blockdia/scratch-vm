@@ -25,6 +25,31 @@ test('template creation, project reload and extension registration', async t => 
         t.ok(vm.editingTarget.componentController);
     }
     t.ok(vm.runtime.getOpcodeFunction('components_setValue'));
+    const expected = {
+        slider: ['value', 'changeValue', 'setValue', 'whenValueChanged'],
+        progress: ['value', 'changeValue', 'setValue', 'whenValueChanged'],
+        button: ['whenClicked'],
+        toggle: ['isChecked', 'setChecked', 'whenStateChanged']
+    };
+    const selfOpcodes = Object.values(expected).flat();
+    for (const target of vm.runtime.targets) {
+        const xml = vm.runtime.getBlocksXML(target).find(category => category.id === 'components').xml;
+        for (const opcode of selfOpcodes) {
+            t.equal(xml.includes(`type="components_${opcode}"`),
+                Boolean(target.component && expected[target.component.type].includes(opcode)),
+                `${target.getName()}: ${opcode}`);
+        }
+        t.ok(xml.includes('components_menu_numericTargets'), 'standard dropdown shadow');
+        t.ok(xml.includes('components_targetProperty'), 'cross-component blocks available to stage and sprites');
+        t.notMatch(xml, /^<category[^>]*><sep/, 'no leading separator');
+        t.notMatch(xml, /<sep[^>]*\/><sep/, 'no adjacent separators');
+        if (target.component && ['slider', 'progress'].includes(target.component.type)) {
+            t.ok(xml.indexOf('components_changeValue') < xml.indexOf('components_setValue'));
+        }
+    }
+    const allDefinitions = vm.runtime.getBlocksJSON();
+    t.ok(allDefinitions.some(block => block && block.type === 'components_whenStateChanged'),
+        'filtering does not unregister blocks in existing scripts');
     const json = vm.toJSON();
     const config = JSON.parse(json).targets.map(target => target.component);
     const assetIds = vm.runtime.targets.map(target => target.getCostumes().map(costume => costume.assetId));
