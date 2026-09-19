@@ -1564,6 +1564,56 @@ class VirtualMachine extends EventEmitter {
     }
 
     /**
+     * Add default false boolean shadows synthesized by scratch-blocks while a
+     * workspace update listener is detached. This is a hydration step: it
+     * deliberately does not emit project-changed events or create undo state.
+     * @param {string} targetId target whose block container should be hydrated
+     * @param {Array<{parentId: string, inputName: string, shadowId: string}>} records shadow records
+     * @returns {number} number of shadows added
+     */
+    hydrateBooleanShadows (targetId, records) {
+        const target = this.runtime.getTargetById(targetId);
+        if (!target || !Array.isArray(records)) return 0;
+        const blocks = target.blocks._blocks;
+        let hydrated = 0;
+        for (const record of records) {
+            if (!record || typeof record.parentId !== 'string' ||
+                typeof record.inputName !== 'string' || typeof record.shadowId !== 'string') continue;
+            const parent = blocks[record.parentId];
+            if (!parent || blocks[record.shadowId]) continue;
+            const existingInput = parent.inputs[record.inputName];
+            if (existingInput && existingInput.shadow) continue;
+            blocks[record.shadowId] = {
+                id: record.shadowId,
+                opcode: 'operator_boolean',
+                inputs: {},
+                fields: {
+                    VALUE: {
+                        name: 'VALUE',
+                        value: 'FALSE'
+                    }
+                },
+                next: null,
+                topLevel: false,
+                parent: record.parentId,
+                shadow: true
+            };
+            if (existingInput) {
+                existingInput.shadow = record.shadowId;
+            } else {
+                parent.inputs[record.inputName] = {
+                    name: record.inputName,
+                    block: record.shadowId,
+                    shadow: record.shadowId
+                };
+            }
+            hydrated++;
+        }
+        if (hydrated) target.blocks.resetCache();
+        return hydrated;
+    }
+
+    /**
      * Called when blocks are dragged from one sprite to another. Adds the blocks to the
      * workspace of the given target.
      * @param {!Array<object>} blocks Blocks to add.

@@ -337,10 +337,48 @@ const getExtensionURLsToSave = (extensionIDs, runtime) => {
 const serializeBlocks = function (blocks) {
     const obj = Object.create(null);
     const extensionIDs = new Set();
+    const omittedBooleanShadows = new Set();
+
+    // Default false checkbox shadows are an editor convenience. Identify them
+    // from both their shape and their parent's shadow edge so ordinary boolean
+    // literals (including false ones) remain fully serializable.
+    for (const blockID in blocks) {
+        if (!hasOwnProperty.call(blocks, blockID)) continue;
+        const block = blocks[blockID];
+        const valueField = block.fields && block.fields.VALUE;
+        const parent = block.parent && blocks[block.parent];
+        const isReferencedAsShadow = parent && Object.keys(parent.inputs).some(inputName =>
+            parent.inputs[inputName].shadow === blockID
+        );
+        if (block.opcode === 'operator_boolean' && block.shadow === true &&
+            valueField && valueField.value === 'FALSE' && isReferencedAsShadow &&
+            Object.keys(block.inputs || {}).length === 0 &&
+            Object.keys(block.fields || {}).length === 1 && !block.next &&
+            !block.comment && !block.mutation && !block.data && !block.topLevel) {
+            omittedBooleanShadows.add(blockID);
+        }
+    }
+
     for (const blockID in blocks) {
         if (!Object.prototype.hasOwnProperty.call(blocks, blockID)) continue;
-        obj[blockID] = serializeBlock(blocks[blockID], blocks);
-        const extensionID = getExtensionIdForOpcode(blocks[blockID].opcode);
+        if (omittedBooleanShadows.has(blockID)) continue;
+        let block = blocks[blockID];
+        if (block.inputs && Object.keys(block.inputs).some(inputName =>
+            omittedBooleanShadows.has(block.inputs[inputName].shadow)
+        )) {
+            block = Object.assign({}, block, {inputs: Object.assign({}, block.inputs)});
+            for (const inputName in block.inputs) {
+                const input = block.inputs[inputName];
+                if (!omittedBooleanShadows.has(input.shadow)) continue;
+                if (input.block === input.shadow) {
+                    delete block.inputs[inputName];
+                } else {
+                    block.inputs[inputName] = Object.assign({}, input, {shadow: null});
+                }
+            }
+        }
+        obj[blockID] = serializeBlock(block);
+        const extensionID = getExtensionIdForOpcode(block.opcode);
         if (extensionID) {
             extensionIDs.add(extensionID);
         }

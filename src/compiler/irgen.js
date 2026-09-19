@@ -224,6 +224,10 @@ class ScriptTreeGenerator {
             return this.createConstantInput(block.fields.NUM.value, preserveStrings);
         case 'text':
             return this.createConstantInput(block.fields.TEXT.value, preserveStrings);
+        case 'operator_boolean':
+            return this.createConstantInput(
+                String(block.fields.VALUE.value).toUpperCase() === 'TRUE'
+            ).toType(InputType.BOOLEAN);
         case 'argument_reporter_string_number': {
             const name = block.fields.VALUE.value;
             // lastIndexOf because multiple parameters with the same name will use the value of the last definition

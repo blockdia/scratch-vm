@@ -241,7 +241,9 @@ const testConditional = function (t, conditional) {
         name: 'SUBSTACK2'
     });
     t.notOk(Object.prototype.hasOwnProperty.call(conditional.json, 'args4'));
-    t.equal(conditional.xml, '<block type="test_ifElse"><value name="THING"></value></block>');
+    t.equal(conditional.xml,
+        '<block type="test_ifElse"><value name="THING"><shadow type="operator_boolean"></shadow>' +
+        '</value></block>');
 };
 
 const testLoop = function (t, loop) {

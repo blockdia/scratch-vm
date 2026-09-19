@@ -223,6 +223,61 @@ test('serializeBlocks', t => {
         });
 });
 
+test('serializeBlocks omits only default false boolean shadows', t => {
+    const makeBoolean = (id, value, parent, extra = {}) => Object.assign({
+        id,
+        opcode: 'operator_boolean',
+        inputs: {},
+        fields: {VALUE: {name: 'VALUE', value}},
+        next: null,
+        topLevel: false,
+        parent,
+        shadow: true
+    }, extra);
+    const blocks = {
+        parent: {
+            id: 'parent',
+            opcode: 'control_wait_until',
+            inputs: {
+                EMPTY: {name: 'EMPTY', block: 'false', shadow: 'false'},
+                COVERED: {name: 'COVERED', block: 'actual', shadow: 'coveredFalse'},
+                TRUE: {name: 'TRUE', block: 'true', shadow: 'true'}
+            },
+            fields: {},
+            next: null,
+            topLevel: true,
+            parent: null,
+            shadow: false,
+            x: 0,
+            y: 0
+        },
+        false: makeBoolean('false', 'FALSE', 'parent'),
+        coveredFalse: makeBoolean('coveredFalse', 'FALSE', 'parent'),
+        true: makeBoolean('true', 'TRUE', 'parent'),
+        actual: {
+            id: 'actual',
+            opcode: 'operator_not',
+            inputs: {},
+            fields: {},
+            next: null,
+            topLevel: false,
+            parent: 'parent',
+            shadow: false
+        }
+    };
+
+    const serialized = sb3.serializeBlocks(blocks)[0];
+    t.notOk(serialized.false, 'uncovered false shadow omitted');
+    t.notOk(serialized.coveredFalse, 'covered false shadow omitted');
+    t.notOk(serialized.parent.inputs.EMPTY, 'empty input omitted');
+    t.same(serialized.parent.inputs.COVERED, [2, 'actual'], 'covered input has no shadow reference');
+    t.ok(serialized.true, 'true shadow preserved');
+    t.same(serialized.parent.inputs.TRUE, [1, 'true'], 'true input preserved');
+    t.ok(blocks.false, 'runtime blocks were not mutated');
+    t.equal(blocks.parent.inputs.COVERED.shadow, 'coveredFalse', 'runtime edge was not mutated');
+    t.end();
+});
+
 test('serializeBlocks serializes x and y for topLevel blocks with x,y of 0,0', t => {
     const vm = new VirtualMachine();
     vm.loadProject(readFileToBuffer(topLevelReportersProjectPath))

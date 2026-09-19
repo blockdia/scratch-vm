@@ -76,6 +76,13 @@ test('not', t => {
     t.end();
 });
 
+test('boolean', t => {
+    t.strictEqual(blocks.boolean({VALUE: 'TRUE'}), true);
+    t.strictEqual(blocks.boolean({VALUE: 'FALSE'}), false);
+    t.strictEqual(blocks.boolean({VALUE: true}), true);
+    t.end();
+});
+
 test('random', t => {
     const min = 0;
     const max = 100;
