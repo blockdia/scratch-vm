@@ -24,12 +24,13 @@ test('template creation, project reload and extension registration', async t => 
         t.equal(vm.editingTarget.component.type, type);
         t.ok(vm.editingTarget.componentController);
     }
-    t.ok(vm.runtime.getOpcodeFunction('components_setValue'));
+    t.notOk(vm.runtime.getOpcodeFunction('components_setValue'), 'removed shortcut opcode is not registered');
+    t.notOk(vm.runtime.getOpcodeFunction('components_whenValueChanged'), 'removed value hat is not registered');
     const expected = {
-        slider: ['value', 'changeValue', 'setValue', 'whenValueChanged'],
-        progress: ['value', 'changeValue', 'setValue', 'whenValueChanged'],
+        slider: [],
+        progress: [],
         button: ['whenClicked'],
-        toggle: ['isChecked', 'setChecked', 'whenStateChanged']
+        toggle: ['whenStateChanged']
     };
     const selfOpcodes = Object.values(expected).flat();
     for (const target of vm.runtime.targets) {
@@ -43,13 +44,14 @@ test('template creation, project reload and extension registration', async t => 
         t.ok(xml.includes('components_targetProperty'), 'cross-component blocks available to stage and sprites');
         t.notMatch(xml, /^<category[^>]*><sep/, 'no leading separator');
         t.notMatch(xml, /<sep[^>]*\/><sep/, 'no adjacent separators');
-        if (target.component && ['slider', 'progress'].includes(target.component.type)) {
-            t.ok(xml.indexOf('components_changeValue') < xml.indexOf('components_setValue'));
-        }
     }
     const allDefinitions = vm.runtime.getBlocksJSON();
     t.ok(allDefinitions.some(block => block && block.type === 'components_whenStateChanged'),
         'filtering does not unregister blocks in existing scripts');
+    for (const opcode of ['value', 'changeValue', 'setValue', 'whenValueChanged', 'isChecked', 'setChecked']) {
+        t.notOk(allDefinitions.some(block => block && block.type === `components_${opcode}`),
+            `${opcode} shortcut definition is removed`);
+    }
     const json = vm.toJSON();
     const config = JSON.parse(json).targets.map(target => target.component);
     const assetIds = vm.runtime.targets.map(target => target.getCostumes().map(costume => costume.assetId));

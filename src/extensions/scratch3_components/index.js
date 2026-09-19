@@ -2,10 +2,11 @@ const BlockType = require('../../extension-support/block-type');
 const ArgumentType = require('../../extension-support/argument-type');
 const Cast = require('../../util/cast');
 const formatMessage = require('format-message');
+const Model = require('../../components/model');
 
 const text = (id, defaultMessage) => formatMessage({id: `components.${id}`, default: defaultMessage});
-const numericTypes = ['slider', 'progress'];
-const numericProperties = ['value', 'min', 'max', 'step'];
+const numericTypes = Model.getTypesWithScriptableProperties('number');
+const booleanTypes = Model.getTypesWithScriptableProperties('boolean');
 
 class Components {
     constructor (runtime) {
@@ -20,41 +21,11 @@ class Components {
             name: text('name', 'Components'),
             color1: '#537FBA',
             blocks: [
-                {opcode: 'value',
-                    blockType: BlockType.REPORTER,
-                    text: text('value', 'value'),
-                    componentTypes: numericTypes,
-                    disableMonitor: true},
-                {opcode: 'changeValue',
-                    blockType: BlockType.COMMAND,
-                    text: text('changeValue', 'change value by [VALUE]'),
-                    componentTypes: numericTypes,
-                    arguments: {VALUE: number(1)}},
-                {opcode: 'setValue',
-                    blockType: BlockType.COMMAND,
-                    text: text('setValue', 'set value to [VALUE]'),
-                    componentTypes: numericTypes,
-                    arguments: {VALUE: number(50)}},
-                {opcode: 'whenValueChanged',
-                    blockType: BlockType.EVENT,
-                    text: text('whenValueChanged', 'when value changes'),
-                    componentTypes: numericTypes,
-                    isEdgeActivated: false},
                 {opcode: 'whenClicked',
                     blockType: BlockType.EVENT,
                     text: text('whenClicked', 'when button clicked'),
                     componentTypes: ['button'],
                     isEdgeActivated: false},
-                {opcode: 'isChecked',
-                    blockType: BlockType.BOOLEAN,
-                    text: text('isChecked', 'checked?'),
-                    componentTypes: ['toggle'],
-                    disableMonitor: true},
-                {opcode: 'setChecked',
-                    blockType: BlockType.COMMAND,
-                    text: text('setChecked', 'set checked to [CHECKED]'),
-                    componentTypes: ['toggle'],
-                    arguments: {CHECKED: {type: ArgumentType.BOOLEAN}}},
                 {opcode: 'whenStateChanged',
                     blockType: BlockType.EVENT,
                     text: text('whenStateChanged', 'when checked state changes'),
@@ -88,13 +59,11 @@ class Components {
             menus: {
                 numericTargets: {acceptReporters: true, items: 'numericTargets'},
                 toggleTargets: {acceptReporters: true, items: 'toggleTargets'},
-                numericProperties: {acceptReporters: false,
-                    items: [
-                        {text: text('value', 'value'), value: 'value'},
-                        {text: text('min', 'minimum'), value: 'min'},
-                        {text: text('max', 'maximum'), value: 'max'},
-                        {text: text('step', 'step'), value: 'step'}
-                    ]}
+                numericProperties: {
+                    acceptReporters: false,
+                    items: 'numericProperties',
+                    dependsOn: {argument: 'TARGET', field: 'numericTargets'}
+                }
             }
         };
     }
@@ -107,7 +76,7 @@ class Components {
         if (this.runtime) {
             for (const target of this.runtime.targets) {
                 if (target.isOriginal && !target.isStage && target.component && !target.componentError &&
-                    types.includes(target.component.type)) {
+                    types.includes(target.component.type) && (!editing || target.sprite !== editing.sprite)) {
                     items.push({text: target.getName(), value: target.getName()});
                 }
             }
@@ -118,37 +87,54 @@ class Components {
         return this._targets(numericTypes);
     }
     toggleTargets () {
-        return this._targets(['toggle']);
+        return this._targets(booleanTypes);
+    }
+    numericProperties (editingTargetID, menuContext) {
+        const selectedTarget = menuContext && menuContext.TARGET;
+        let target = null;
+        if (selectedTarget === '_myself_') {
+            target = this.runtime && (this.runtime.getTargetById(editingTargetID) || this.runtime.getEditingTarget());
+        } else if (selectedTarget) {
+            target = this._targetByName(selectedTarget);
+        }
+        const types = target && target.component && !target.componentError ? [target.component.type] : numericTypes;
+        const names = [];
+        for (const type of types) {
+            for (const name of Model.getScriptableProperties(type, 'number')) {
+                if (!names.includes(name)) names.push(name);
+            }
+        }
+        return names.map(name => ({text: text(name, name), value: name}));
+    }
+    _targetByName (name) {
+        return this.runtime && this.runtime.targets.find(target => target.isOriginal && !target.isStage &&
+            target.getName() === name);
     }
     _target (name, util) {
         name = Cast.toString(name);
         if (name === '_myself_') return util.target;
-        return this.runtime && this.runtime.targets.find(target => target.isOriginal && !target.isStage &&
-            target.getName() === name);
+        return this._targetByName(name);
     }
     _number (target, property) {
         const props = target && target.component && target.component.properties;
-        return props && numericProperties.includes(property) &&
+        return props && Model.hasScriptableProperty(target.component.type, property, 'number') &&
             typeof props[property] === 'number' ? props[property] : 0;
     }
     _setNumber (target, property, input, change = false) {
-        if (!target || !target.componentController || !numericProperties.includes(property)) return;
+        if (!target || !target.componentController ||
+            !Model.hasScriptableProperty(target.component.type, property, 'number')) return;
         const props = target.component.properties;
         if (typeof props[property] !== 'number') return;
         const value = Cast.toNumber(input) + (change ? props[property] : 0);
         if (!Number.isFinite(value)) return;
-        const next = Object.assign({}, props, {[property]: value});
-        if (next.max <= next.min || !Number.isFinite(next.max - next.min) || next.step < 0) return;
+        const next = Model.copy(target.component);
+        next.properties[property] = value;
+        try {
+            Model.normalize(next, target.getCostumes().length);
+        } catch (e) {
+            return;
+        }
         target.componentController.setProperties({[property]: value});
-    }
-    value (args, util) {
-        return this._number(util.target, 'value');
-    }
-    changeValue (args, util) {
-        this._setNumber(util.target, 'value', args.VALUE, true);
-    }
-    setValue (args, util) {
-        this._setNumber(util.target, 'value', args.VALUE);
     }
     targetProperty (args, util) {
         return this._number(this._target(args.TARGET, util), args.PROPERTY);
@@ -159,21 +145,18 @@ class Components {
     setTargetProperty (args, util) {
         this._setNumber(this._target(args.TARGET, util), args.PROPERTY, args.VALUE);
     }
-    isChecked (args, util) {
-        const config = util.target && util.target.component;
-        return Boolean(config && config.type === 'toggle' && config.properties.checked);
-    }
-    setChecked (args, util) {
-        const target = util.target;
-        if (target && target.componentController && target.component.type === 'toggle') {
-            target.componentController.setProperties({checked: Cast.toBoolean(args.CHECKED)});
-        }
-    }
     targetIsChecked (args, util) {
-        return this.isChecked(args, {target: this._target(args.TARGET, util)});
+        const target = this._target(args.TARGET, util);
+        return Boolean(target && target.component &&
+            Model.hasScriptableProperty(target.component.type, 'checked', 'boolean') &&
+            target.component.properties.checked);
     }
     setTargetChecked (args, util) {
-        this.setChecked(args, {target: this._target(args.TARGET, util)});
+        const target = this._target(args.TARGET, util);
+        if (target && target.componentController &&
+            Model.hasScriptableProperty(target.component.type, 'checked', 'boolean')) {
+            target.componentController.setProperties({checked: Cast.toBoolean(args.CHECKED)});
+        }
     }
 }
 module.exports = Components;

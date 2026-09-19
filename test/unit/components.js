@@ -35,6 +35,9 @@ test('validation and stepped values', t => {
     config.metadata.sliderTrack.end = [-84, 0];
     t.throws(() => Model.normalize(config, 3));
     t.throws(() => Model.normalize(Model.create('slider'), 2));
+    t.same(Model.getScriptableProperties('slider', 'number'), ['value', 'min', 'max', 'step']);
+    t.same(Model.getScriptableProperties('progress', 'number'), ['value', 'min', 'max']);
+    t.same(Model.getScriptableProperties('toggle', 'boolean'), ['checked']);
     t.end();
 });
 
@@ -93,7 +96,7 @@ test('sensing expands parts, excludes self, and costume references survive reord
     t.end();
 });
 
-test('pointer capture, stepping, event ownership and cancellation', t => {
+test('pointer capture, stepping and cancellation', t => {
     const {runtime, target, renderer} = setup();
     const events = [];
     runtime.startHats = (opcode, fields, owner) => events.push([opcode, owner]);
@@ -105,7 +108,7 @@ test('pointer capture, stepping, event ownership and cancellation', t => {
     post({x: 324});
     t.equal(target.component.properties.value, 100);
     t.equal(mouse.componentCapture, target.componentController);
-    t.ok(events.some(([opcode, owner]) => opcode === 'components_whenValueChanged' && owner === target));
+    t.notOk(events.some(([opcode]) => opcode.startsWith('components_')), 'value changes do not start component hats');
     const count = events.length;
     post({x: 324});
     t.equal(events.length, count, 'unchanged value does not retrigger hats');
@@ -123,7 +126,7 @@ test('pointer capture, stepping, event ownership and cancellation', t => {
 
 test('button, toggle, progress and block setters', t => {
     const {runtime, target, renderer} = setup();
-    const extension = new Extension();
+    const extension = new Extension(runtime);
     const util = {target};
     const events = [];
     runtime.startHats = opcode => events.push(opcode);
@@ -134,16 +137,22 @@ test('button, toggle, progress and block setters', t => {
     target.componentController.pointer({isDown: false, x: 240, y: 180}, 0, 0);
     t.same(events, ['components_whenClicked']);
     target.setComponent(Model.create('toggle'));
-    extension.setChecked({CHECKED: 'false'}, util);
-    t.notOk(extension.isChecked({}, util));
-    extension.setChecked({CHECKED: true}, util);
-    t.ok(extension.isChecked({}, util));
+    extension.setTargetChecked({TARGET: '_myself_', CHECKED: 'false'}, util);
+    t.notOk(extension.targetIsChecked({TARGET: '_myself_'}, util));
+    extension.setTargetChecked({TARGET: '_myself_', CHECKED: true}, util);
+    t.ok(extension.targetIsChecked({TARGET: '_myself_'}, util));
     target.componentController.setProperties({disabled: true});
     target.componentController.pointer({isDown: true}, 0, 0);
     t.notOk(target.componentController.pressed);
     target.setComponent(Model.create('progress'));
-    extension.setValue({VALUE: 200}, util);
-    t.equal(extension.value({}, util), 100);
+    runtime.setEditingTarget(target);
+    t.same(extension.numericProperties(target.id, {TARGET: '_myself_'}).map(item => item.value),
+        ['value', 'min', 'max'], 'progress property menu follows its declaration');
+    extension.setTargetProperty({TARGET: '_myself_', PROPERTY: 'value', VALUE: 200}, util);
+    t.equal(extension.targetProperty({TARGET: '_myself_', PROPERTY: 'value'}, util), 100);
+    extension.setTargetProperty({TARGET: '_myself_', PROPERTY: 'step', VALUE: 2}, util);
+    t.equal(extension.targetProperty({TARGET: '_myself_', PROPERTY: 'step'}, util), 0,
+        'undeclared progress properties are unavailable');
     target.componentController.pointer({isDown: true}, 0, 0);
     t.notOk(target.componentController.pressed);
     t.end();
@@ -222,12 +231,12 @@ test('cross-component properties, menus, events and clone self resolution', t =>
     const util = {target: clone};
     const events = [];
     runtime.startHats = (opcode, fields, owner) => events.push([opcode, owner]);
-    extension.changeValue({VALUE: 5}, util);
+    extension.changeTargetProperty({TARGET: '_myself_', PROPERTY: 'value', VALUE: 5}, util);
     t.equal(clone.component.properties.value, 55);
     t.equal(target.component.properties.value, 50);
     extension.changeTargetProperty({TARGET: 'Slider', PROPERTY: 'value', VALUE: 10}, util);
     t.equal(target.component.properties.value, 60);
-    t.equal(events[1][1], target, 'change hats belong to the destination');
+    t.equal(events.length, 0, 'numeric properties do not have component change hats');
     t.equal(extension.targetProperty({TARGET: '_myself_', PROPERTY: 'value'}, util), 55);
     extension.setTargetProperty({TARGET: 'Slider', PROPERTY: 'max', VALUE: 70}, util);
     extension.changeTargetProperty({TARGET: 'Slider', PROPERTY: 'value', VALUE: 99}, util);
@@ -238,15 +247,19 @@ test('cross-component properties, menus, events and clone self resolution', t =>
     t.equal(target.component.properties.step, 1);
     t.equal(extension.targetProperty({TARGET: 'missing', PROPERTY: 'value'}, util), 0);
     t.doesNotThrow(() => extension.setTargetProperty({TARGET: 'missing', PROPERTY: 'value', VALUE: 1}, util));
-    t.equal(extension.numericTargets().filter(item => item.value === 'Slider').length, 1,
-        'clones not duplicated in menu');
+    t.equal(extension.numericTargets().filter(item => item.value === 'Slider').length, 0,
+        'the current original and its clones are not repeated by name');
+    t.same(extension.numericProperties(target.id, {TARGET: '_myself_'}).map(item => item.value),
+        ['value', 'min', 'max', 'step']);
     target.setComponent(Model.create('toggle'));
     extension.setTargetChecked({TARGET: 'Slider', CHECKED: true}, util);
     t.ok(extension.targetIsChecked({TARGET: 'Slider'}, util));
+    t.same(events, [['components_whenStateChanged', target]], 'checked hats belong to the destination');
     t.notOk(extension.targetIsChecked({TARGET: '_myself_'}, util));
     t.equal(extension.targetProperty({TARGET: 'Slider', PROPERTY: 'value'}, util), 0);
     target.sprite.name = 'Renamed';
-    t.ok(extension.toggleTargets().some(item => item.value === 'Renamed'));
+    t.same(extension.toggleTargets().map(item => item.value), ['_myself_'],
+        'the renamed editing target remains represented only by myself');
     t.notOk(extension.targetIsChecked({TARGET: 'Slider'}, util), 'names follow standard Scratch target lookup');
     clone.dispose();
     t.end();

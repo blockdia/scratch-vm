@@ -36,8 +36,21 @@
  */
 
 /**
- * @typedef {ExtensionDynamicMenu|ExtensionMenuItems} ExtensionMenuMetadata
+ * @typedef {ExtensionDynamicMenu|ExtensionMenuItems|ExtensionMenuDetails} ExtensionMenuMetadata
  * All the metadata needed to register an extension drop-down menu.
+ */
+
+/**
+ * @typedef {object} ExtensionMenuDetails
+ * @property {ExtensionDynamicMenu|ExtensionMenuItems} items - static items or the dynamic menu function name.
+ * @property {boolean} [acceptReporters] - whether reporter blocks may replace this menu.
+ * @property {ExtensionMenuDependency} [dependsOn] - another argument whose selected value is passed to a dynamic menu.
+ */
+
+/**
+ * @typedef {object} ExtensionMenuDependency
+ * @property {string} argument - the input or field argument to read from the source block.
+ * @property {string} [field] - the field name to read when the argument is a menu shadow block.
  */
 
 /**

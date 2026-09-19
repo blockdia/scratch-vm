@@ -840,9 +840,9 @@ class VirtualMachine extends EventEmitter {
             }
 
             // Update the VM user's knowledge of targets and blocks on the workspace.
+            this.runtime.setEditingTarget(this.editingTarget);
             this.emitTargetsUpdate(false /* Don't emit project change */);
             this.emitWorkspaceUpdate();
-            this.runtime.setEditingTarget(this.editingTarget);
             this.runtime.ioDevices.cloud.setStage(this.runtime.getTargetForStage());
         });
     }
@@ -1595,10 +1595,10 @@ class VirtualMachine extends EventEmitter {
         const target = this.runtime.getTargetById(targetId);
         if (target) {
             this.editingTarget = target;
+            this.runtime.setEditingTarget(target);
             // Emit appropriate UI updates.
             this.emitTargetsUpdate(false /* Don't emit project change */);
             this.emitWorkspaceUpdate();
-            this.runtime.setEditingTarget(target);
         }
     }
 
@@ -1696,8 +1696,8 @@ class VirtualMachine extends EventEmitter {
      */
     refreshWorkspace () {
         if (this.editingTarget) {
-            this.emitWorkspaceUpdate();
             this.runtime.setEditingTarget(this.editingTarget);
+            this.emitWorkspaceUpdate();
             this.emitTargetsUpdate(false /* Don't emit project change */);
         }
     }

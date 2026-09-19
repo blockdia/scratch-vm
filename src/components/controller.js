@@ -98,11 +98,8 @@ class ComponentController {
         target.emitVisualChange();
         target.runtime.requestRedraw();
         target.runtime.requestTargetsUpdate(target);
-        if (emit) {
-            for (const [key, opcode] of [['value', 'components_whenValueChanged'],
-                ['checked', 'components_whenStateChanged']]) {
-                if (previous[key] !== target.component.properties[key]) target.runtime.startHats(opcode, null, target);
-            }
+        if (emit && previous.checked !== target.component.properties.checked) {
+            target.runtime.startHats('components_whenStateChanged', null, target);
         }
     }
 

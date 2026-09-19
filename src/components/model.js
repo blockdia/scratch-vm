@@ -1,13 +1,45 @@
 const copy = value => JSON.parse(JSON.stringify(value));
+const property = (defaultValue, scriptType = null) => ({defaultValue, scriptType});
 const definitions = {
     slider: {parts: ['track', 'fill', 'thumb'],
         properties: {
-            min: 0, max: 100, value: 50, step: 1, clickTrackToJump: true
+            value: property(50, 'number'),
+            min: property(0, 'number'),
+            max: property(100, 'number'),
+            step: property(1, 'number'),
+            clickTrackToJump: property(true)
         }},
-    button: {parts: ['body'], properties: {disabled: false}},
-    toggle: {parts: ['body', 'mark'], properties: {checked: false, disabled: false}},
-    progress: {parts: ['track', 'fill'], properties: {min: 0, max: 100, value: 50}}
+    button: {parts: ['body'], properties: {disabled: property(false)}},
+    toggle: {
+        parts: ['body', 'mark'],
+        properties: {
+            checked: property(false, 'boolean'),
+            disabled: property(false)
+        }
+    },
+    progress: {
+        parts: ['track', 'fill'],
+        properties: {
+            value: property(50, 'number'),
+            min: property(0, 'number'),
+            max: property(100, 'number')
+        }
+    }
 };
+
+const definitionFor = type => Object.prototype.hasOwnProperty.call(definitions, type) && definitions[type];
+
+const getScriptableProperties = (type, scriptType) => {
+    const definition = definitionFor(type);
+    if (!definition) return [];
+    return Object.keys(definition.properties).filter(name => definition.properties[name].scriptType === scriptType);
+};
+
+const getTypesWithScriptableProperties = scriptType => Object.keys(definitions)
+    .filter(type => getScriptableProperties(type, scriptType).length > 0);
+
+const hasScriptableProperty = (type, name, scriptType) =>
+    getScriptableProperties(type, scriptType).includes(name);
 
 const normalizeValue = (properties, value) => {
     value = Math.max(properties.min, Math.min(properties.max, value));
@@ -20,16 +52,15 @@ const normalizeValue = (properties, value) => {
 
 const normalize = (input, costumeCount) => {
     const config = copy(input);
-    const definition = config && Object.prototype.hasOwnProperty.call(definitions, config.type) &&
-        definitions[config.type];
+    const definition = config && definitionFor(config.type);
     if (!definition || config.version !== 1) throw new Error('Unsupported component type or version');
     const properties = config.properties;
     if (!properties || Object.keys(properties).some(key => !(key in definition.properties))) {
         throw new Error('Invalid component properties');
     }
-    for (const [key, value] of Object.entries(definition.properties)) {
-        if (typeof properties[key] !== typeof value ||
-            (typeof value === 'number' && !Number.isFinite(properties[key]))) {
+    for (const [key, descriptor] of Object.entries(definition.properties)) {
+        if (typeof properties[key] !== typeof descriptor.defaultValue ||
+            (typeof descriptor.defaultValue === 'number' && !Number.isFinite(properties[key]))) {
             throw new Error(`Invalid component property: ${key}`);
         }
     }
@@ -59,15 +90,27 @@ const normalize = (input, costumeCount) => {
 };
 
 const create = type => {
-    if (!Object.prototype.hasOwnProperty.call(definitions, type)) throw new Error('Unknown component type');
+    const definition = definitionFor(type);
+    if (!definition) throw new Error('Unknown component type');
     return {
         version: 1,
         type,
-        properties: copy(definitions[type].properties),
-        parts: definitions[type].parts.map((name, costumeIndex) => ({name, costumeIndex, collision: true})),
+        properties: Object.keys(definition.properties).reduce((result, name) => {
+            result[name] = copy(definition.properties[name].defaultValue);
+            return result;
+        }, {}),
+        parts: definition.parts.map((name, costumeIndex) => ({name, costumeIndex, collision: true})),
         metadata: type === 'slider' || type === 'progress' ?
             {sliderTrack: {start: [-84, 0], end: [84, 0]}} : {}
     };
 };
 
-module.exports = {copy, normalize, normalizeValue, create};
+module.exports = {
+    copy,
+    normalize,
+    normalizeValue,
+    create,
+    getScriptableProperties,
+    getTypesWithScriptableProperties,
+    hasScriptableProperty
+};

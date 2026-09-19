@@ -696,6 +696,8 @@ class Blocks {
                 // Changing the value in a dropdown
                 block.fields[args.name].value = args.value;
 
+                let blocksNeedUpdate = false;
+
                 // The selected item in the sensing of block menu needs to change based on the
                 // selected target.  Set it to the first item in the menu list.
                 // TODO: (#1787)
@@ -705,8 +707,40 @@ class Blocks {
                     } else {
                         this._blocks[block.parent].fields.PROPERTY.value = 'x position';
                     }
-                    this.runtime.requestBlocksUpdate();
+                    blocksNeedUpdate = true;
                 }
+
+                // Reset fields backed by dependent menus to the first valid option when their
+                // source argument changes. The source can be a direct field or a dropdown shadow.
+                let dependencyBlock = block;
+                let dependencyArgument = args.name;
+                let dependencyField = null;
+                if (block.parent && this._blocks[block.parent]) {
+                    const parent = this._blocks[block.parent];
+                    const inputName = Object.keys(parent.inputs).find(name =>
+                        parent.inputs[name].block === block.id);
+                    if (inputName) {
+                        dependencyBlock = parent;
+                        dependencyArgument = inputName;
+                        dependencyField = args.name;
+                    }
+                }
+                const dependentUpdates = this.runtime._getDependentMenuUpdates(
+                    dependencyBlock.opcode,
+                    dependencyArgument,
+                    dependencyField,
+                    args.value,
+                    dependencyBlock.fields
+                );
+                for (const fieldName in dependentUpdates) {
+                    if (Object.prototype.hasOwnProperty.call(dependentUpdates, fieldName) &&
+                        dependencyBlock.fields[fieldName] &&
+                        dependencyBlock.fields[fieldName].value !== dependentUpdates[fieldName]) {
+                        dependencyBlock.fields[fieldName].value = dependentUpdates[fieldName];
+                        blocksNeedUpdate = true;
+                    }
+                }
+                if (blocksNeedUpdate) this.runtime.requestBlocksUpdate();
 
                 const flyoutBlock = block.shadow && block.parent ? this._blocks[block.parent] : block;
                 if (flyoutBlock.isMonitored) {

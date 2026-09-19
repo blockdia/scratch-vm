@@ -717,6 +717,27 @@ test('getVariableValue', t => {
     t.end();
 });
 
+test('setEditingTarget updates runtime before emitting workspace XML', t => {
+    const vm = new VirtualMachine();
+    const firstSprite = new Sprite(null, vm.runtime);
+    const firstTarget = firstSprite.createClone();
+    const secondSprite = new Sprite(null, vm.runtime);
+    const secondTarget = secondSprite.createClone();
+    vm.runtime.targets = [firstTarget, secondTarget];
+    vm.editingTarget = firstTarget;
+    vm.runtime.setEditingTarget(firstTarget);
+    vm.emitTargetsUpdate = () => {};
+    vm.emitWorkspaceUpdate = () => {
+        t.equal(vm.runtime.getEditingTarget(), secondTarget,
+            'dynamic menus use the new target while workspace XML is restored');
+    };
+
+    vm.setEditingTarget(secondTarget.id);
+    t.equal(vm.editingTarget, secondTarget);
+    t.equal(vm.runtime.getEditingTarget(), secondTarget);
+    t.end();
+});
+
 // Block Listener tests for comment
 test('comment_create event updates comment with null position', t => {
     const vm = new VirtualMachine();
