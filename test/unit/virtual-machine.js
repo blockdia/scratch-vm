@@ -10,6 +10,47 @@ const RenderedTarget = require('../../src/sprites/rendered-target');
 
 const test = tap.test;
 
+test('hydrateBooleanShadows adds missing defaults without emitting project changes', t => {
+    const vm = new VirtualMachine();
+    let cacheResets = 0;
+    let projectChanges = 0;
+    const target = {
+        id: 'target',
+        blocks: {
+            _blocks: {
+                parent: {
+                    id: 'parent',
+                    inputs: {},
+                    fields: {}
+                }
+            },
+            resetCache: () => cacheResets++
+        }
+    };
+    vm.runtime.getTargetById = id => (id === target.id ? target : null);
+    vm.runtime.on('PROJECT_CHANGED', () => projectChanges++);
+
+    t.equal(vm.hydrateBooleanShadows('target', [{
+        parentId: 'parent',
+        inputName: 'CONDITION',
+        shadowId: 'boolean'
+    }]), 1);
+    t.equal(target.blocks._blocks.boolean.fields.VALUE.value, 'FALSE');
+    t.same(target.blocks._blocks.parent.inputs.CONDITION, {
+        name: 'CONDITION',
+        block: 'boolean',
+        shadow: 'boolean'
+    });
+    t.equal(cacheResets, 1);
+    t.equal(projectChanges, 0);
+    t.equal(vm.hydrateBooleanShadows('target', [{
+        parentId: 'parent',
+        inputName: 'CONDITION',
+        shadowId: 'replacement'
+    }]), 0, 'does not overwrite an existing shadow');
+    t.end();
+});
+
 test('deleteSound returns function after deleting or null if nothing was deleted', t => {
     const vm = new VirtualMachine();
     const rt = new Runtime();
