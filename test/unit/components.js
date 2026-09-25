@@ -27,6 +27,10 @@ const setup = () => {
 
 test('validation and stepped values', t => {
     const config = Model.create('slider');
+    const invalidPart = Model.copy(config);
+    invalidPart.parts[0].extra = true;
+    t.throws(() => Model.normalize(invalidPart, ['track', 'fill', 'thumb'].map(name => ({name}))),
+        'unknown part settings are rejected');
     config.properties = {min: -1, max: 1, value: 0.36, step: 0.1, clickTrackToJump: true};
     t.equal(Model.normalize(config, ['track', 'fill', 'thumb'].map(name => ({name}))).properties.value, 0.4);
     t.equal(config.properties.value, 0.36, 'validation does not mutate caller');
@@ -316,7 +320,7 @@ test('named bindings survive edits and invalid references fail', t => {
     t.throws(() => Model.normalize(config, []), 'missing references fail');
     const bound = target.getCostumes().find(costume => costume.name === name);
     t.throws(() => Model.normalize(config, target.getCostumes().concat(bound)), 'ambiguous references fail');
-    config.parts[0] = {name: 'track', costumeIndex: 0, collision: true};
+    config.parts[0] = {name: 'track', costumeIndex: 0};
     t.throws(() => Model.normalize(config, target.getCostumes()), 'numeric references are unsupported');
     t.end();
 });
@@ -343,7 +347,7 @@ test('component size limits use local geometry and the full thumb travel', t => 
     t.end();
 });
 
-test('pen stamps active parts in order even when hidden or non-collidable', t => {
+test('pen stamps active parts in order even when the target is hidden', t => {
     const {target, renderer, runtime} = setup();
     const pen = new Pen(runtime);
     pen._getPenLayerID = () => 42;
@@ -357,9 +361,9 @@ test('pen stamps active parts in order even when hidden or non-collidable', t =>
     const ids = target.getDrawableIDs();
     check(ids);
     target.setVisible(false);
-    target.component.parts[2].collision = false;
     check(ids);
     target.componentController.setProperties({value: 0});
+    t.same(target.getDrawableIDs(true), [ids[0], ids[2]], 'empty fill is excluded from sensing');
     check([ids[0], ids[2]]);
     target.setComponent(Model.create('toggle'));
     const toggleIDs = target.getDrawableIDs();

@@ -214,8 +214,8 @@ class RenderedTarget extends Target {
         this.runtime.requestTargetsUpdate(this);
     }
 
-    getDrawableIDs (collisionOnly = false) {
-        return this.componentController ? this.componentController.ids(collisionOnly) : [this.drawableID];
+    getDrawableIDs (activeOnly = false) {
+        return this.componentController ? this.componentController.ids(activeOnly) : [this.drawableID];
     }
 
     _componentBounds () {

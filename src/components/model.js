@@ -76,7 +76,7 @@ const normalize = (input, costumes) => {
         config.parts.some((part, index) => !part || part.name !== definition.parts[index] ||
             typeof part.costume !== 'string' ||
             costumes.filter(costume => costume.name === part.costume).length !== 1 ||
-            typeof part.collision !== 'boolean')) {
+            Object.keys(part).some(key => key !== 'name' && key !== 'costume'))) {
         throw new Error('Invalid component parts or costume references');
     }
     if (config.type === 'slider' || config.type === 'progress') {
@@ -101,7 +101,7 @@ const create = type => {
             result[name] = copy(definition.properties[name].defaultValue);
             return result;
         }, {}),
-        parts: definition.parts.map(name => ({name, costume: name, collision: true})),
+        parts: definition.parts.map(name => ({name, costume: name})),
         metadata: type === 'slider' || type === 'progress' ?
             {sliderTrack: {start: [-84, 0], end: [84, 0]}} : {}
     };

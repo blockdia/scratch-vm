@@ -20,9 +20,8 @@ class ComponentController {
         this.target.drawableID = ids[0];
     }
 
-    ids (collisionOnly = false) {
-        return this.target.component.parts.filter(part => !collisionOnly || (part.collision &&
-            this.isPartShown(part)))
+    ids (activeOnly = false) {
+        return this.target.component.parts.filter(part => !activeOnly || this.isPartShown(part))
             .map(part => this.parts.get(part.name))
             .filter(id => typeof id === 'number');
     }
@@ -34,9 +33,7 @@ class ComponentController {
     }
 
     getStampDrawableIDs () {
-        return this.target.component.parts.filter(part => this.isPartShown(part))
-            .map(part => this.parts.get(part.name))
-            .filter(id => typeof id === 'number');
+        return this.ids(true);
     }
 
     // Measure in unrotated costume coordinates, including the full thumb travel.

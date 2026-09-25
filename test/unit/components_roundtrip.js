@@ -70,6 +70,11 @@ test('template creation, project reload and extension registration', async t => 
     vm.setComponentProperties(toggle.id, {checked: true});
     const json = vm.toJSON();
     const config = JSON.parse(json).targets.map(target => target.component);
+    for (const component of config.filter(Boolean)) {
+        for (const part of component.parts) {
+            t.same(Object.keys(part).sort(), ['costume', 'name'], 'saved parts contain only costume bindings');
+        }
+    }
     const assetIds = vm.runtime.targets.map(target => target.getCostumes().map(costume => costume.assetId));
     const saved = await vm.saveProjectSb3();
     await vm.loadProject(await saved.arrayBuffer());
