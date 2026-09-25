@@ -5,6 +5,7 @@ const Runtime = require('../../src/engine/runtime');
 const Sprite = require('../../src/sprites/sprite');
 const RenderWebGL = require('../fixtures/component-renderer');
 const sb3 = require('../../src/serialization/sb3');
+const Pen = require('../../src/extensions/scratch3_pen');
 
 const setup = () => {
     const runtime = new Runtime();
@@ -312,5 +313,56 @@ test('named bindings survive edits and invalid references fail', t => {
     t.throws(() => Model.normalize(config, target.getCostumes().concat(bound)), 'ambiguous references fail');
     config.parts[0] = {name: 'track', costumeIndex: 0, collision: true};
     t.throws(() => Model.normalize(config, target.getCostumes()), 'numeric references are unsupported');
+    t.end();
+});
+
+test('component size limits use local geometry and the full thumb travel', t => {
+    const {target, renderer, runtime} = setup();
+    runtime.setRuntimeOptions({fencing: true});
+    renderer.getSkinSize = id => (id === 2 ? [28, 28] : [180, 12]);
+    renderer.getSkinRotationCenter = id => (id === 2 ? [14, 14] : [90, 6]);
+    const limit = 720 / 196 * 100;
+    for (const direction of [90, 0, 45, -90]) {
+        target.setDirection(direction);
+        for (const value of [0, 50, 100]) {
+            target.componentController.setProperties({value});
+            target.setSize(400);
+            t.equal(target.size, limit, 'maximum is independent of direction and value');
+            target.setSize(1);
+            t.equal(target.size, 5 / 28 * 100, 'minimum is independent of rotation');
+        }
+    }
+    runtime.setRuntimeOptions({fencing: false});
+    target.setSize(1000);
+    t.equal(target.size, 1000, 'unrestricted size stays unrestricted');
+    t.end();
+});
+
+test('pen stamps active parts in order even when hidden or non-collidable', t => {
+    const {target, renderer, runtime} = setup();
+    const pen = new Pen(runtime);
+    pen._getPenLayerID = () => 42;
+    let stamped = [];
+    renderer.penStamp = (skin, id) => stamped.push(id);
+    const check = expected => {
+        stamped = [];
+        pen._stamp(target);
+        t.same(stamped, expected);
+    };
+    const ids = target.getDrawableIDs();
+    check(ids);
+    target.setVisible(false);
+    target.component.parts[2].collision = false;
+    check(ids);
+    target.componentController.setProperties({value: 0});
+    check([ids[0], ids[2]]);
+    target.setComponent(Model.create('toggle'));
+    const toggleIDs = target.getDrawableIDs();
+    check([toggleIDs[0]]);
+    target.componentController.setProperties({checked: true});
+    check(toggleIDs);
+    stamped = [];
+    pen._stamp({drawableID: 123});
+    t.same(stamped, [123], 'ordinary sprite stamping is unchanged');
     t.end();
 });

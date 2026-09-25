@@ -427,12 +427,8 @@ class RenderedTarget extends Target {
         if (this.renderer) {
             // Clamp to scales relative to costume and stage size.
             // See original ScratchSprite.as:setSize.
-            let costumeSize = this.renderer.getCurrentSkinSize(this.drawableID);
-            if (this.componentController && this.size > 0) {
-                const bounds = this._componentBounds();
-                costumeSize = [(bounds.right - bounds.left) * 100 / this.size,
-                    (bounds.top - bounds.bottom) * 100 / this.size];
-            }
+            const costumeSize = this.componentController ? this.componentController.getSize() :
+                this.renderer.getCurrentSkinSize(this.drawableID);
             const origW = costumeSize[0];
             const origH = costumeSize[1];
             const fencing = this.runtime.runtimeOptions.fencing;

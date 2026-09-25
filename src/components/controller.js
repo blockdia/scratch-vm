@@ -22,10 +22,41 @@ class ComponentController {
 
     ids (collisionOnly = false) {
         return this.target.component.parts.filter(part => !collisionOnly || (part.collision &&
-            (part.name !== 'mark' || this.target.component.properties.checked) &&
-            (part.name !== 'fill' || this.target.component.properties.value > this.target.component.properties.min)))
+            this.isPartShown(part)))
             .map(part => this.parts.get(part.name))
             .filter(id => typeof id === 'number');
+    }
+
+    isPartShown (part) {
+        const p = this.target.component.properties;
+        return (part.name !== 'mark' || p.checked) && (part.name !== 'fill' || p.value > p.min);
+    }
+
+    getStampDrawableIDs () {
+        return this.target.component.parts.filter(part => this.isPartShown(part))
+            .map(part => this.parts.get(part.name))
+            .filter(id => typeof id === 'number');
+    }
+
+    // Measure in unrotated costume coordinates, including the full thumb travel.
+    // Size limits must not change with direction, effects, or the current value.
+    getSize () {
+        const target = this.target;
+        const bounds = {left: Infinity, right: -Infinity, bottom: Infinity, top: -Infinity};
+        for (const part of target.component.parts) {
+            const costume = target.getCostumes()[target.getCostumeIndexByName(part.costume)];
+            const [width, height] = target.renderer.getSkinSize(costume.skinId);
+            const [cx, cy] = target.renderer.getSkinRotationCenter(costume.skinId);
+            const track = target.component.metadata.sliderTrack;
+            const positions = part.name === 'thumb' ? [track.start, track.end] : [[0, 0]];
+            for (const [x, y] of positions) {
+                bounds.left = Math.min(bounds.left, x - cx);
+                bounds.right = Math.max(bounds.right, x - cx + width);
+                bounds.bottom = Math.min(bounds.bottom, y + cy - height);
+                bounds.top = Math.max(bounds.top, y + cy);
+            }
+        }
+        return [bounds.right - bounds.left, bounds.top - bounds.bottom];
     }
 
     localPoint (x, y) {
