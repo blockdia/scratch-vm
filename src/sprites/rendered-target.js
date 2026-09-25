@@ -219,7 +219,7 @@ class RenderedTarget extends Target {
     }
 
     _componentBounds () {
-        const bounds = this.getDrawableIDs().map(id => this.renderer.getBounds(id));
+        const bounds = this.getDrawableIDs(true).map(id => this.renderer.getBounds(id));
         return {
             left: Math.min(...bounds.map(b => b.left)),
             right: Math.max(...bounds.map(b => b.right)),

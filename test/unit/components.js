@@ -375,3 +375,32 @@ test('pen stamps active parts in order even when the target is hidden', t => {
     t.same(stamped, [123], 'ordinary sprite stamping is unchanged');
     t.end();
 });
+
+
+test('component schema rejects own keys inherited by the property definition', t => {
+    for (const key of ['toString', 'constructor', '__proto__']) {
+        const config = Model.create('toggle');
+        config.properties = JSON.parse(`{"checked":false,"${key}":true}`);
+        t.throws(() => Model.normalize(config, config.parts.map(part => ({name: part.costume}))),
+            /Invalid component properties/, `${key} is not a declared property`);
+    }
+    t.end();
+});
+
+test('component bounds follow the active toggle costume even when the target is hidden', t => {
+    const {target, renderer} = setup();
+    target.setComponent(Model.create('toggle'));
+    const ids = target.getDrawableIDs();
+    const bounds = [
+        {left: -10, right: 10, bottom: -5, top: 5},
+        {left: -300, right: 300, bottom: -200, top: 200}
+    ];
+    renderer.getBounds = id => bounds[ids.indexOf(id)];
+    t.same(target.getBounds(), bounds[0], 'inactive large costume does not expand bounds');
+    t.same(target.getBoundsForBubble(), bounds[0], 'bubble uses active costume');
+    target.componentController.setProperties({checked: true});
+    t.same(target.getBounds(), bounds[1], 'switching state changes bounds');
+    target.setVisible(false);
+    t.same(target.getBounds(), bounds[1], 'hiding the target preserves finite active-state bounds');
+    t.end();
+});

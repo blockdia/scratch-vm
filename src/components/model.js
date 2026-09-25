@@ -56,7 +56,8 @@ const normalize = (input, costumes) => {
     if (!definition || config.version !== 1) throw new Error('Unsupported component type or version');
     if (!Array.isArray(costumes)) throw new Error('Costumes are required to resolve component references');
     const properties = config.properties;
-    if (!properties || Object.keys(properties).some(key => !(key in definition.properties))) {
+    if (!properties || Object.keys(properties).some(key =>
+        !Object.prototype.hasOwnProperty.call(definition.properties, key))) {
         throw new Error('Invalid component properties');
     }
     for (const [key, descriptor] of Object.entries(definition.properties)) {
