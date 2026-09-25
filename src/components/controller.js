@@ -29,7 +29,8 @@ class ComponentController {
 
     isPartShown (part) {
         const p = this.target.component.properties;
-        return (part.name !== 'mark' || p.checked) && (part.name !== 'fill' || p.value > p.min);
+        return (part.name !== 'off' || !p.checked) && (part.name !== 'on' || p.checked) &&
+            (part.name !== 'fill' || p.value > p.min);
     }
 
     getStampDrawableIDs () {
@@ -84,7 +85,7 @@ class ComponentController {
             let x = 0;
             let y = 0;
             let clip = null;
-            let shown = true;
+            const shown = this.isPartShown(part);
             if (part.name === 'thumb') {
                 x = track.start[0] + ((track.end[0] - track.start[0]) * ratio);
                 y = track.start[1] + ((track.end[1] - track.start[1]) * ratio);
@@ -97,9 +98,6 @@ class ComponentController {
                     const ny = dy / length;
                     clip = [nx, ny, (nx * track.start[0]) + (ny * track.start[1]) + (length * ratio)];
                 }
-                shown = ratio > 0;
-            } else if (part.name === 'mark') {
-                shown = p.checked;
             }
             const id = this.parts.get(part.name);
             const px = x * scale[0] / 100;

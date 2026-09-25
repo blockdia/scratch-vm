@@ -11,7 +11,7 @@ const definitions = {
         }},
     button: {parts: ['body'], properties: {disabled: property(false)}},
     toggle: {
-        parts: ['body', 'mark'],
+        parts: ['off', 'on'],
         properties: {
             checked: property(false, 'boolean'),
             disabled: property(false)

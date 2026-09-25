@@ -5,15 +5,15 @@ const track = svg(180, 12, '<rect width="180" height="12" rx="6" fill="#d6deea"/
 const fill = svg(180, 12, '<rect width="180" height="12" rx="6" fill="#4c97ff"/>');
 const thumb = svg(28, 28, '<circle cx="14" cy="14" r="12" fill="#ffffff" stroke="#4c97ff" stroke-width="3"/>');
 const body = svg(104, 40, '<rect width="104" height="40" rx="9" fill="#4c97ff"/>');
-const toggle = svg(48, 32,
+const off = svg(48, 32,
     '<rect width="48" height="32" rx="16" fill="#a8b4c5"/><circle cx="16" cy="16" r="12" fill="white"/>');
-const mark = svg(48, 32,
+const on = svg(48, 32,
     '<rect width="48" height="32" rx="16" fill="#4c97ff"/><circle cx="32" cy="16" r="12" fill="white"/>');
 
 const templates = {
     slider: [[track, 90, 6], [fill, 90, 6], [thumb, 14, 14]],
     button: [[body, 52, 20]],
-    toggle: [[toggle, 24, 16], [mark, 24, 16]],
+    toggle: [[off, 24, 16], [on, 24, 16]],
     progress: [[track, 90, 6], [fill, 90, 6]]
 };
 

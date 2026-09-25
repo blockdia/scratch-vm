@@ -13,7 +13,7 @@ const setup = () => {
     runtime.attachRenderer(renderer);
     const sprite = new Sprite(null, runtime);
     sprite.name = 'Slider';
-    sprite.costumes = [0, 1, 2, 3, 4].map(skinId => ({name: ['track', 'fill', 'thumb', 'body', 'mark'][skinId],
+    sprite.costumes = [0, 1, 2, 3, 4, 5].map(skinId => ({name: ['track', 'fill', 'thumb', 'body', 'off', 'on'][skinId],
         skinId,
         assetId: String(skinId),
         dataFormat: 'svg',
@@ -140,8 +140,13 @@ test('button, toggle, progress and block setters', t => {
     target.setComponent(Model.create('toggle'));
     extension.setTargetChecked({TARGET: '_myself_', CHECKED: 'false'}, util);
     t.notOk(extension.targetIsChecked({TARGET: '_myself_'}, util));
+    const toggleIDs = target.getDrawableIDs();
+    t.same(toggleIDs.map(id => renderer._allDrawables[id]._visible), [true, false]);
+    t.same(target.getDrawableIDs(true), [toggleIDs[0]]);
     extension.setTargetChecked({TARGET: '_myself_', CHECKED: true}, util);
     t.ok(extension.targetIsChecked({TARGET: '_myself_'}, util));
+    t.same(toggleIDs.map(id => renderer._allDrawables[id]._visible), [false, true]);
+    t.same(target.getDrawableIDs(true), [toggleIDs[1]]);
     target.componentController.setProperties({disabled: true});
     target.componentController.pointer({isDown: true}, 0, 0);
     t.notOk(target.componentController.pressed);
@@ -360,7 +365,7 @@ test('pen stamps active parts in order even when hidden or non-collidable', t =>
     const toggleIDs = target.getDrawableIDs();
     check([toggleIDs[0]]);
     target.componentController.setProperties({checked: true});
-    check(toggleIDs);
+    check([toggleIDs[1]]);
     stamped = [];
     pen._stamp({drawableID: 123});
     t.same(stamped, [123], 'ordinary sprite stamping is unchanged');

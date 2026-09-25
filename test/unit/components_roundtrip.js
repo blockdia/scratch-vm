@@ -59,6 +59,15 @@ test('template creation, project reload and extension registration', async t => 
     t.throws(() => vm.setComponentCostume(slider.id, 'thumb', 'missing'));
     t.throws(() => vm.setComponentCostume(slider.id, 'missing', 'fill'));
     t.equal(JSON.stringify(slider.component), before, 'invalid binding does not mutate the component');
+    const toggle = vm.runtime.targets.find(target => target.component && target.component.type === 'toggle');
+    t.same(toggle.getCostumes().map(costume => costume.name), ['off', 'on']);
+    t.same(toggle.component.parts.map(part => part.name), ['off', 'on']);
+    toggle.renameCostume(0, 'closed');
+    t.equal(toggle.component.parts[0].costume, 'closed', 'renaming preserves the off binding');
+    vm.setComponentCostume(toggle.id, 'on', 'closed');
+    t.equal(toggle.component.parts[1].costume, 'closed', 'on costume can be rebound by name');
+    vm.setComponentCostume(toggle.id, 'on', 'on');
+    vm.setComponentProperties(toggle.id, {checked: true});
     const json = vm.toJSON();
     const config = JSON.parse(json).targets.map(target => target.component);
     const assetIds = vm.runtime.targets.map(target => target.getCostumes().map(costume => costume.assetId));
