@@ -15,6 +15,8 @@ const MathUtil = require('./util/math-util');
 const Runtime = require('./engine/runtime');
 const RenderedTarget = require('./sprites/rendered-target');
 const Sprite = require('./sprites/sprite');
+const createComponentTemplate = require('./components/templates');
+const ComponentModel = require('./components/model');
 const StringUtil = require('./util/string-util');
 const formatMessage = require('format-message');
 
@@ -838,11 +840,59 @@ class VirtualMachine extends EventEmitter {
             }
 
             // Update the VM user's knowledge of targets and blocks on the workspace.
+            this.runtime.setEditingTarget(this.editingTarget);
             this.emitTargetsUpdate(false /* Don't emit project change */);
             this.emitWorkspaceUpdate();
-            this.runtime.setEditingTarget(this.editingTarget);
             this.runtime.ioDevices.cloud.setStage(this.runtime.getTargetForStage());
         });
+    }
+
+    /**
+     * Create a built-in component sprite using editable vector costumes.
+     * @param {string} type Built-in component type.
+     * @param {string} name Localized sprite name.
+     * @returns {Promise} Resolves after the sprite and blocks are installed.
+     */
+    addComponent (type, name) {
+        if (!this.runtime.storage) return Promise.reject(new Error('Components require asset storage'));
+        const {sprite, assets} = createComponentTemplate(type, this.runtime.storage, name);
+        const zip = new JSZip();
+        zip.file('sprite.json', JSON.stringify(sprite));
+        for (const asset of assets) zip.file(`${asset.assetId}.${asset.dataFormat}`, asset.data);
+        const load = this.extensionManager.isExtensionLoaded('components') ? Promise.resolve() :
+            this.extensionManager.loadExtensionURL('components');
+        return load.then(() => zip.generateAsync({type: 'uint8array'})).then(data => this.addSprite(data));
+    }
+
+    setComponentProperties (targetId, properties) {
+        const target = this.runtime.getTargetById(targetId);
+        if (!target || !target.componentController) throw new Error('Target is not an active component');
+        target.componentController.setProperties(properties);
+        this.emitTargetsUpdate();
+    }
+
+    setComponentCostume (targetId, partName, costumeName) {
+        const target = this.runtime.getTargetById(targetId);
+        if (!target || !target.componentController) throw new Error('Target is not an active component');
+        const config = ComponentModel.copy(target.component);
+        const part = config.parts.find(item => item.name === partName);
+        if (!part) throw new Error('Unknown component part');
+        part.costume = costumeName;
+        target.component = ComponentModel.normalize(config, target.getCostumes());
+        target.componentController.sync();
+        this.runtime.requestRedraw();
+        this.emitTargetsUpdate();
+    }
+
+    setComponentMetadata (targetId, metadata) {
+        const target = this.runtime.getTargetById(targetId);
+        if (!target || !target.componentController) throw new Error('Target is not an active component');
+        const config = ComponentModel.copy(target.component);
+        config.metadata = metadata;
+        target.component = ComponentModel.normalize(config, target.getCostumes());
+        target.componentController.sync();
+        this.runtime.requestRedraw();
+        this.emitTargetsUpdate();
     }
 
     /**
@@ -1222,6 +1272,7 @@ class VirtualMachine extends EventEmitter {
             bitmapResolution,
             [rotationCenterX / bitmapResolution, rotationCenterY / bitmapResolution]
         );
+        this._syncComponentCostume(costume);
 
         // @todo there should be a better way to get from ImageData to a decodable storage format
         canvas.toBlob(blob => {
@@ -1265,6 +1316,16 @@ class VirtualMachine extends EventEmitter {
         );
     }
 
+    _syncComponentCostume (costume) {
+        for (const target of this.runtime.targets) {
+            if (target.componentController && target.getCostumes().includes(costume)) {
+                target.componentController.sync();
+                target.emitVisualChange();
+            }
+        }
+        this.runtime.requestRedraw();
+    }
+
     _updateSvg (costume, svg, rotationCenterX, rotationCenterY) {
         if (costume && costume.broken) delete costume.broken;
         if (costume && this.runtime && this.runtime.renderer) {
@@ -1272,6 +1333,7 @@ class VirtualMachine extends EventEmitter {
             costume.rotationCenterY = rotationCenterY;
             this.runtime.renderer.updateSVGSkin(costume.skinId, svg, [rotationCenterX, rotationCenterY]);
             costume.size = this.runtime.renderer.getSkinSize(costume.skinId);
+            this._syncComponentCostume(costume);
         }
         const storage = this.runtime.storage;
         // If we're in here, we've edited an svg in the vector editor,
@@ -1546,10 +1608,10 @@ class VirtualMachine extends EventEmitter {
         const target = this.runtime.getTargetById(targetId);
         if (target) {
             this.editingTarget = target;
+            this.runtime.setEditingTarget(target);
             // Emit appropriate UI updates.
             this.emitTargetsUpdate(false /* Don't emit project change */);
             this.emitWorkspaceUpdate();
-            this.runtime.setEditingTarget(target);
         }
     }
 
@@ -1697,8 +1759,8 @@ class VirtualMachine extends EventEmitter {
      */
     refreshWorkspace () {
         if (this.editingTarget) {
-            this.emitWorkspaceUpdate();
             this.runtime.setEditingTarget(this.editingTarget);
+            this.emitWorkspaceUpdate();
             this.emitTargetsUpdate(false /* Don't emit project change */);
         }
     }

@@ -1221,6 +1221,72 @@ class Runtime extends EventEmitter {
     }
 
     /**
+     * Build the option list for an extension menu, including optional dependencies on another argument in the block.
+     * Dynamic menu functions receive dependency values as their second argument.
+     * @param {object} menuInfo - extension menu metadata
+     * @returns {Array|Function} static options or a Scratch Blocks option generator
+     * @private
+     */
+    _buildMenuOptions (menuInfo) {
+        const menuItems = this._convertMenuItems(menuInfo.items);
+        if (typeof menuItems !== 'function' || !menuInfo.dependsOn) return menuItems;
+        const dependency = menuInfo.dependsOn;
+        return function () {
+            const sourceBlock = this && this.sourceBlock_; // eslint-disable-line no-invalid-this
+            let value;
+            if (sourceBlock) {
+                const inputBlock = typeof sourceBlock.getInputTargetBlock === 'function' &&
+                    sourceBlock.getInputTargetBlock(dependency.argument);
+                if (inputBlock && dependency.field && typeof inputBlock.getFieldValue === 'function') {
+                    value = inputBlock.getFieldValue(dependency.field);
+                } else if (typeof sourceBlock.getFieldValue === 'function') {
+                    value = sourceBlock.getFieldValue(dependency.argument);
+                }
+            }
+            return menuItems({[dependency.argument]: value});
+        };
+    }
+
+    /**
+     * Get fallback values for dependent fields which become invalid after their source argument changes.
+     * @param {string} parentOpcode opcode of the block containing the dependent field
+     * @param {string} dependencyArgument argument supplying the dependency value
+     * @param {?string} dependencyField field name on a menu shadow, or null for a direct field
+     * @param {*} value newly selected dependency value
+     * @param {object<string, object>} currentFields current fields on the parent block
+     * @returns {object<string, *>} dependent argument names mapped to their new values
+     * @private
+     */
+    _getDependentMenuUpdates (parentOpcode, dependencyArgument, dependencyField, value, currentFields) {
+        const updates = {};
+        for (const categoryInfo of this._blockInfo) {
+            const convertedBlock = categoryInfo.blocks.find(block =>
+                block.json && block.json.type === parentOpcode);
+            if (!convertedBlock || !convertedBlock.info || !convertedBlock.info.arguments) continue;
+            for (const argumentName in convertedBlock.info.arguments) {
+                if (!Object.prototype.hasOwnProperty.call(convertedBlock.info.arguments, argumentName)) continue;
+                const argumentInfo = convertedBlock.info.arguments[argumentName];
+                const menuInfo = argumentInfo.menu && categoryInfo.menuInfo[argumentInfo.menu];
+                const dependency = menuInfo && menuInfo.dependsOn;
+                if (!dependency || dependency.argument !== dependencyArgument ||
+                    (dependencyField && dependency.field !== dependencyField) ||
+                    typeof menuInfo.items !== 'function') continue;
+                const items = menuInfo.items({[dependencyArgument]: value});
+                if (!items || items.length === 0) continue;
+                const itemValue = item => {
+                    if (Array.isArray(item)) return item[1];
+                    return typeof item === 'object' ? item.value : item;
+                };
+                const currentField = currentFields && currentFields[argumentName];
+                if (currentField && items.some(item => itemValue(item) === currentField.value)) continue;
+                updates[argumentName] = itemValue(items[0]);
+            }
+            break;
+        }
+        return updates;
+    }
+
+    /**
      * Build the scratch-blocks JSON for a menu. Note that scratch-blocks treats menus as a special kind of block.
      * @param {string} menuName - the name of the menu
      * @param {object} menuInfo - a description of this menu and its items
@@ -1232,7 +1298,7 @@ class Runtime extends EventEmitter {
      */
     _buildMenuForScratchBlocks (menuName, menuInfo, categoryInfo) {
         const menuId = this._makeExtensionMenuId(menuName, categoryInfo.id);
-        const menuItems = this._convertMenuItems(menuInfo.items);
+        const menuItems = this._buildMenuOptions(menuInfo);
         return {
             json: {
                 message0: '%1',
@@ -1666,7 +1732,7 @@ class Runtime extends EventEmitter {
                     fieldName = argInfo.menu;
                 } else {
                     argJSON.type = 'field_dropdown';
-                    argJSON.options = this._convertMenuItems(menuInfo.items);
+                    argJSON.options = this._buildMenuOptions(menuInfo);
                     valueName = null;
                     shadowType = null;
                     fieldName = placeholder;
@@ -1723,7 +1789,7 @@ class Runtime extends EventEmitter {
             const {name, color1, color2} = categoryInfo;
             // Filter out blocks that aren't supposed to be shown on this target, as determined by the block info's
             // `hideFromPalette` and `filter` properties.
-            const paletteBlocks = categoryInfo.blocks.filter(block => {
+            let paletteBlocks = categoryInfo.blocks.filter(block => {
                 let blockFilterIncludesTarget = true;
                 // If an editing target is not passed, include all blocks
                 // If the block info doesn't include a `filter` property, always include it
@@ -1732,9 +1798,20 @@ class Runtime extends EventEmitter {
                         target.isStage ? TargetType.STAGE : TargetType.SPRITE
                     );
                 }
+                if (target && block.info.componentTypes) {
+                    blockFilterIncludesTarget = blockFilterIncludesTarget && Boolean(target.component &&
+                        !target.componentError && block.info.componentTypes.includes(target.component.type));
+                }
                 // If the block info's `hideFromPalette` is true, then filter out this block
                 return blockFilterIncludesTarget && !block.info.hideFromPalette;
             });
+
+            if (categoryInfo.id === 'components') {
+                // Filtering must not leave an empty group or a leading/trailing separator.
+                paletteBlocks = paletteBlocks.filter((block, index, blocks) => block.info !== '---' ||
+                    (blocks.slice(0, index).some(item => item.info !== '---') &&
+                    index + 1 < blocks.length && blocks[index + 1].info !== '---'));
+            }
 
             const colorXML = `colour="${xmlEscape(color1)}" secondaryColour="${xmlEscape(color2)}"`;
 
@@ -3217,7 +3294,8 @@ class Runtime extends EventEmitter {
     getTargetByDrawableId (drawableID) {
         for (let i = 0; i < this.targets.length; i++) {
             const target = this.targets[i];
-            if (target.drawableID === drawableID) return target;
+            if (target.drawableID === drawableID ||
+                (target.componentController && target.getDrawableIDs().includes(drawableID))) return target;
         }
     }
 

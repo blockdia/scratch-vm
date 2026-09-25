@@ -1,10 +1,12 @@
 const test = require('tap').test;
 const Worker = require('tiny-worker');
 
+const ArgumentType = require('../../src/extension-support/argument-type');
 const BlockType = require('../../src/extension-support/block-type');
 
 const dispatch = require('../../src/dispatch/central-dispatch');
 const VirtualMachine = require('../../src/virtual-machine');
+const Blocks = require('../../src/engine/blocks');
 
 const Sprite = require('../../src/sprites/sprite');
 const RenderedTarget = require('../../src/sprites/rendered-target');
@@ -26,11 +28,24 @@ class TestInternalExtension {
             blocks: [
                 {
                     opcode: 'go'
+                },
+                {
+                    opcode: 'dependent',
+                    text: '[PROPERTY] of [TARGET]',
+                    arguments: {
+                        TARGET: {type: ArgumentType.STRING, menu: 'targetMenu'},
+                        PROPERTY: {type: ArgumentType.STRING, menu: 'dependentMenu'}
+                    }
                 }
             ],
             menus: {
                 simpleMenu: this._buildAMenu(),
-                dynamicMenu: '_buildDynamicMenu'
+                dynamicMenu: '_buildDynamicMenu',
+                targetMenu: {acceptReporters: true, items: ['Slider', 'Progress']},
+                dependentMenu: {
+                    items: '_buildDependentMenu',
+                    dependsOn: {argument: 'TARGET', field: 'targetMenu'}
+                }
             }
         };
     }
@@ -40,6 +55,8 @@ class TestInternalExtension {
         return blockInfo;
     }
 
+    dependent () {}
+
     _buildAMenu () {
         this.status.buildMenuCalled = true;
         return ['abcd', 'efgh', 'ijkl'];
@@ -48,6 +65,11 @@ class TestInternalExtension {
     _buildDynamicMenu () {
         this.status.buildDynamicMenuCalled = true;
         return [1, 2, 3, 4, 6];
+    }
+
+    _buildDependentMenu (editingTargetID, menuContext) {
+        this.status.dependentMenuContext = menuContext;
+        return ['value', (menuContext && menuContext.TARGET) || 'none'];
     }
 }
 
@@ -81,14 +103,59 @@ test('internal extension', t => {
     };
     t.deepEqual(goBlockInfo, expectedBlockInfo);
 
-    // There should be 2 menus - one is an array, one is the function to call.
-    t.equal(vm.runtime._blockInfo[0].menus.length, 2);
+    // There should be 4 menus - two arrays, one dynamic function, and one dependent dynamic function.
+    t.equal(vm.runtime._blockInfo[0].menus.length, 4);
     // First menu has 3 items.
     t.equal(
         vm.runtime._blockInfo[0].menus[0].json.args0[0].options.length, 3);
     // Second menu is a dynamic menu and therefore should be a function.
     t.type(
         vm.runtime._blockInfo[0].menus[1].json.args0[0].options, 'function');
+    const dependentOptions = vm.runtime._blockInfo[0].menus[3].json.args0[0].options;
+    t.type(dependentOptions, 'function');
+    t.same(dependentOptions.call({sourceBlock_: {
+        getInputTargetBlock: () => ({getFieldValue: () => 'Progress'})
+    }}), [['value', 'value'], ['Progress', 'Progress']]);
+    t.same(extension.status.dependentMenuContext, {TARGET: 'Progress'});
+
+    const blocks = new Blocks(vm.runtime);
+    blocks.createBlock({
+        id: 'dependent',
+        opcode: 'testInternalExtension_dependent',
+        fields: {PROPERTY: {name: 'PROPERTY', value: 'Slider'}},
+        inputs: {TARGET: {name: 'TARGET', block: 'targetMenu', shadow: 'targetMenu'}},
+        topLevel: true
+    });
+    blocks.createBlock({
+        id: 'targetMenu',
+        opcode: 'testInternalExtension_menu_targetMenu',
+        fields: {targetMenu: {name: 'targetMenu', value: 'Slider'}},
+        inputs: {},
+        parent: 'dependent',
+        shadow: true,
+        topLevel: false
+    });
+    let blocksUpdateCount = 0;
+    vm.runtime.requestBlocksUpdate = () => blocksUpdateCount++;
+    blocks.changeBlock({
+        id: 'targetMenu',
+        element: 'field',
+        name: 'targetMenu',
+        value: 'Progress'
+    });
+    t.equal(blocks.getBlock('dependent').fields.PROPERTY.value, 'value',
+        'changing a dependency resets the dependent field to its first option');
+    t.equal(blocksUpdateCount, 1, 'dependent field change requests a workspace update');
+    blocks.getBlock('dependent').fields.PROPERTY.value = 'value';
+    blocks.changeBlock({
+        id: 'targetMenu',
+        element: 'field',
+        name: 'targetMenu',
+        value: 'Slider'
+    });
+    t.equal(blocks.getBlock('dependent').fields.PROPERTY.value, 'value',
+        'changing a dependency preserves a still-valid dependent value');
+    t.equal(blocksUpdateCount, 1, 'preserving a valid dependent value does not reload the workspace');
 
     t.end();
 });

@@ -537,7 +537,9 @@ class Scratch3PenBlocks {
     _stamp (target) { // used by compiler
         const penSkinId = this._getPenLayerID();
         if (penSkinId >= 0) {
-            this.runtime.renderer.penStamp(penSkinId, target.drawableID);
+            const ids = target.componentController ? target.componentController.getStampDrawableIDs() :
+                [target.drawableID];
+            for (const id of ids) this.runtime.renderer.penStamp(penSkinId, id);
             this.runtime.requestRedraw();
         }
     }
