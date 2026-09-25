@@ -12,7 +12,7 @@ const setup = () => {
     runtime.attachRenderer(renderer);
     const sprite = new Sprite(null, runtime);
     sprite.name = 'Slider';
-    sprite.costumes = [0, 1, 2].map(skinId => ({name: String(skinId),
+    sprite.costumes = [0, 1, 2, 3, 4].map(skinId => ({name: ['track', 'fill', 'thumb', 'body', 'mark'][skinId],
         skinId,
         assetId: String(skinId),
         dataFormat: 'svg',
@@ -27,14 +27,14 @@ const setup = () => {
 test('validation and stepped values', t => {
     const config = Model.create('slider');
     config.properties = {min: -1, max: 1, value: 0.36, step: 0.1, clickTrackToJump: true};
-    t.equal(Model.normalize(config, 3).properties.value, 0.4);
+    t.equal(Model.normalize(config, ['track', 'fill', 'thumb'].map(name => ({name}))).properties.value, 0.4);
     t.equal(config.properties.value, 0.36, 'validation does not mutate caller');
     config.properties.max = -1;
-    t.throws(() => Model.normalize(config, 3));
+    t.throws(() => Model.normalize(config, ['track', 'fill', 'thumb'].map(name => ({name}))));
     config.properties.max = 1;
     config.metadata.sliderTrack.end = [-84, 0];
-    t.throws(() => Model.normalize(config, 3));
-    t.throws(() => Model.normalize(Model.create('slider'), 2));
+    t.throws(() => Model.normalize(config, ['track', 'fill', 'thumb'].map(name => ({name}))));
+    t.throws(() => Model.normalize(Model.create('slider'), [{name: 'track'}, {name: 'fill'}]));
     t.same(Model.getScriptableProperties('slider', 'number'), ['value', 'min', 'max', 'step']);
     t.same(Model.getScriptableProperties('progress', 'number'), ['value', 'min', 'max']);
     t.same(Model.getScriptableProperties('toggle', 'boolean'), ['checked']);
@@ -88,8 +88,8 @@ test('sensing expands parts, excludes self, and costume references survive reord
     t.ok(target.isTouchingColor([255, 0, 0]));
     t.equal(target.deleteCostume(1), null);
     target.reorderCostume(0, 2);
-    t.same(target.component.parts.map(p => p.costumeIndex), [2, 0, 1]);
-    t.same(other.component.parts.map(p => p.costumeIndex), [2, 0, 1]);
+    t.same(target.component.parts.map(p => p.costume), ['track', 'fill', 'thumb']);
+    t.same(other.component.parts.map(p => p.costume), ['track', 'fill', 'thumb']);
     const saved = sb3.serialize(runtime);
     t.same(saved.targets[0].component, target.component);
     t.notOk(JSON.stringify(saved).includes('componentController'));
@@ -287,5 +287,30 @@ test('component menu shadows follow sprite renames without rewriting text inputs
         t.equal(target.blocks.getBlock(menu).fields[menu].value, 'Renamed');
     }
     t.equal(target.blocks.getBlock('text').fields.TEXT.value, 'Slider');
+    t.end();
+});
+
+
+test('named bindings survive edits and invalid references fail', t => {
+    const {target, runtime} = setup();
+    const clone = target.makeClone();
+    runtime.targets.push(clone);
+    target.renameCostume(0, 'fill');
+    const name = target.getCostumes()[0].name;
+    t.not(name, 'fill', 'rename resolves conflicts');
+    t.equal(target.component.parts[0].costume, name);
+    t.equal(clone.component.parts[0].costume, name);
+    target.addCostume({name: 'extra', skinId: 99}, 0);
+    target.reorderCostume(1, 4);
+    target.componentController.sync();
+    t.equal(target.component.parts[0].costume, name);
+    t.equal(target.deleteCostume(target.getCostumeIndexByName(name)), null);
+    t.equal(target.deleteCostume(0).name, 'extra');
+    const config = Model.copy(target.component);
+    t.throws(() => Model.normalize(config, []), 'missing references fail');
+    const bound = target.getCostumes().find(costume => costume.name === name);
+    t.throws(() => Model.normalize(config, target.getCostumes().concat(bound)), 'ambiguous references fail');
+    config.parts[0] = {name: 'track', costumeIndex: 0, collision: true};
+    t.throws(() => Model.normalize(config, target.getCostumes()), 'numeric references are unsupported');
     t.end();
 });

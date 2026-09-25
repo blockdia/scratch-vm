@@ -871,12 +871,25 @@ class VirtualMachine extends EventEmitter {
         this.emitTargetsUpdate();
     }
 
+    setComponentCostume (targetId, partName, costumeName) {
+        const target = this.runtime.getTargetById(targetId);
+        if (!target || !target.componentController) throw new Error('Target is not an active component');
+        const config = ComponentModel.copy(target.component);
+        const part = config.parts.find(item => item.name === partName);
+        if (!part) throw new Error('Unknown component part');
+        part.costume = costumeName;
+        target.component = ComponentModel.normalize(config, target.getCostumes());
+        target.componentController.sync();
+        this.runtime.requestRedraw();
+        this.emitTargetsUpdate();
+    }
+
     setComponentMetadata (targetId, metadata) {
         const target = this.runtime.getTargetById(targetId);
         if (!target || !target.componentController) throw new Error('Target is not an active component');
         const config = ComponentModel.copy(target.component);
         config.metadata = metadata;
-        target.component = ComponentModel.normalize(config, target.getCostumes().length);
+        target.component = ComponentModel.normalize(config, target.getCostumes());
         target.componentController.sync();
         this.runtime.requestRedraw();
         this.emitTargetsUpdate();

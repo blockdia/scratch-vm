@@ -130,7 +130,7 @@ class Components {
         const next = Model.copy(target.component);
         next.properties[property] = value;
         try {
-            Model.normalize(next, target.getCostumes().length);
+            Model.normalize(next, target.getCostumes());
         } catch (e) {
             return;
         }

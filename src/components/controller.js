@@ -73,7 +73,8 @@ class ComponentController {
             const id = this.parts.get(part.name);
             const px = x * scale[0] / 100;
             const py = y * scale[1] / 100;
-            target.renderer.updateDrawableSkinId(id, target.getCostumes()[part.costumeIndex].skinId);
+            const costume = target.getCostumes()[target.getCostumeIndexByName(part.costume)];
+            target.renderer.updateDrawableSkinId(id, costume.skinId);
             target.renderer.updateDrawablePosition(id, [target.x + (px * Math.cos(angle)) - (py * Math.sin(angle)),
                 target.y + (px * Math.sin(angle)) + (py * Math.cos(angle))]);
             target.renderer.updateDrawableDirectionScale(id, direction, scale);
@@ -90,7 +91,7 @@ class ComponentController {
         const previous = target.component.properties;
         const next = Model.copy(target.component);
         Object.assign(next.properties, patch);
-        const normalized = Model.normalize(next, target.getCostumes().length);
+        const normalized = Model.normalize(next, target.getCostumes());
         if (Object.keys(previous).every(key => previous[key] === normalized.properties[key])) return;
         target.component = normalized;
         if (normalized.properties.disabled) this.cancel();

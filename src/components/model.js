@@ -50,10 +50,11 @@ const normalizeValue = (properties, value) => {
     return Math.max(properties.min, Math.min(properties.max, value));
 };
 
-const normalize = (input, costumeCount) => {
+const normalize = (input, costumes) => {
     const config = copy(input);
     const definition = config && definitionFor(config.type);
     if (!definition || config.version !== 1) throw new Error('Unsupported component type or version');
+    if (!Array.isArray(costumes)) throw new Error('Costumes are required to resolve component references');
     const properties = config.properties;
     if (!properties || Object.keys(properties).some(key => !(key in definition.properties))) {
         throw new Error('Invalid component properties');
@@ -73,7 +74,8 @@ const normalize = (input, costumeCount) => {
     }
     if (!Array.isArray(config.parts) || config.parts.length !== definition.parts.length ||
         config.parts.some((part, index) => !part || part.name !== definition.parts[index] ||
-            !Number.isInteger(part.costumeIndex) || part.costumeIndex < 0 || part.costumeIndex >= costumeCount ||
+            typeof part.costume !== 'string' ||
+            costumes.filter(costume => costume.name === part.costume).length !== 1 ||
             typeof part.collision !== 'boolean')) {
         throw new Error('Invalid component parts or costume references');
     }
@@ -99,7 +101,7 @@ const create = type => {
             result[name] = copy(definition.properties[name].defaultValue);
             return result;
         }, {}),
-        parts: definition.parts.map((name, costumeIndex) => ({name, costumeIndex, collision: true})),
+        parts: definition.parts.map(name => ({name, costume: name, collision: true})),
         metadata: type === 'slider' || type === 'progress' ?
             {sliderTrack: {start: [-84, 0], end: [84, 0]}} : {}
     };

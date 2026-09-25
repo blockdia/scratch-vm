@@ -52,6 +52,13 @@ test('template creation, project reload and extension registration', async t => 
         t.notOk(allDefinitions.some(block => block && block.type === `components_${opcode}`),
             `${opcode} shortcut definition is removed`);
     }
+    const slider = vm.runtime.targets.find(target => target.component && target.component.type === 'slider');
+    vm.setComponentCostume(slider.id, 'thumb', 'fill');
+    t.equal(slider.component.parts.find(part => part.name === 'thumb').costume, 'fill');
+    const before = JSON.stringify(slider.component);
+    t.throws(() => vm.setComponentCostume(slider.id, 'thumb', 'missing'));
+    t.throws(() => vm.setComponentCostume(slider.id, 'missing', 'fill'));
+    t.equal(JSON.stringify(slider.component), before, 'invalid binding does not mutate the component');
     const json = vm.toJSON();
     const config = JSON.parse(json).targets.map(target => target.component);
     const assetIds = vm.runtime.targets.map(target => target.getCostumes().map(costume => costume.assetId));

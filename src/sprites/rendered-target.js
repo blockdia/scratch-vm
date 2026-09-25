@@ -194,7 +194,7 @@ class RenderedTarget extends Target {
 
     setComponent (config) {
         if (this.isStage) throw new Error('The stage cannot be a component');
-        const next = ComponentModel.normalize(config, this.getCostumes().length);
+        const next = ComponentModel.normalize(config, this.getCostumes());
         if (this.renderer && !this.renderer.createDrawableGroup) {
             throw new Error('Components require a renderer with drawable group support');
         }
@@ -529,15 +529,6 @@ class RenderedTarget extends Target {
      * @param {?int} index Index at which to add costume
      */
     addCostume (costumeObject, index) {
-        if (Number.isInteger(index)) {
-            for (const target of this.sprite.clones) {
-                if (target.componentController) {
-                    for (const part of target.component.parts) {
-                        if (part.costumeIndex >= index) part.costumeIndex++;
-                    }
-                }
-            }
-        }
         if (typeof index === 'number' && !isNaN(index)) {
             this.sprite.addCostumeAt(costumeObject, index);
         } else {
@@ -557,6 +548,14 @@ class RenderedTarget extends Target {
         const oldName = this.getCostumes()[costumeIndex].name;
         const newUnusedName = StringUtil.unusedName(newName, usedNames);
         this.getCostumes()[costumeIndex].name = newUnusedName;
+        for (const target of this.sprite.clones) {
+            if (target.componentController) {
+                for (const part of target.component.parts) {
+                    if (part.costume === oldName) part.costume = newUnusedName;
+                }
+            }
+        }
+
 
         if (this.isStage) {
             // Since this is a backdrop, go through all targets and
@@ -581,7 +580,8 @@ class RenderedTarget extends Target {
      */
     deleteCostume (index) {
         if (this.sprite.clones.some(target => target.componentController &&
-            target.component.parts.some(part => part.costumeIndex === index))) return null;
+            target.component.parts.some(part => this.getCostumes()[index] &&
+                part.costume === this.getCostumes()[index].name))) return null;
         const originalCostumeCount = this.sprite.costumes.length;
         if (originalCostumeCount === 1) return null;
 
@@ -590,13 +590,7 @@ class RenderedTarget extends Target {
         }
 
         const deletedCostume = this.sprite.deleteCostumeAt(index);
-        for (const target of this.sprite.clones) {
-            if (target.componentController) {
-                for (const part of target.component.parts) {
-                    if (part.costumeIndex > index) part.costumeIndex--;
-                }
-            }
-        }
+
 
         if (index === this.currentCostume && index === originalCostumeCount - 1) {
             this.setCostume(index - 1);
@@ -730,16 +724,7 @@ class RenderedTarget extends Target {
         this.sprite.deleteCostumeAt(costumeIndex);
 
         this.sprite.addCostumeAt(costume, newIndex);
-        for (const target of this.sprite.clones) {
-            if (target.componentController) {
-                for (const part of target.component.parts) {
-                    const index = part.costumeIndex;
-                    if (index === costumeIndex) part.costumeIndex = newIndex;
-                    else if (costumeIndex < newIndex && index > costumeIndex && index <= newIndex) part.costumeIndex--;
-                    else if (newIndex < costumeIndex && index >= newIndex && index < costumeIndex) part.costumeIndex++;
-                }
-            }
-        }
+
         this.currentCostume = this.getCostumeIndexByName(currentCostume.name);
         return true;
     }
