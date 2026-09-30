@@ -753,6 +753,28 @@ class Blocks {
             break;
         case 'mutation':
             block.mutation = mutationAdapter(args.value);
+            if (block.opcode === 'procedures_call' || block.opcode === 'procedures_prototype') {
+                let argumentIds;
+                try {
+                    argumentIds = JSON.parse(block.mutation.argumentids);
+                } catch (error) {
+                    break;
+                }
+                if (!Array.isArray(argumentIds) || argumentIds.some(id => typeof id !== 'string')) break;
+                for (const name of Object.keys(block.inputs)) {
+                    if (argumentIds.includes(name)) continue;
+                    const input = block.inputs[name];
+                    delete block.inputs[name];
+                    // Blockly moves retained reporters out after the mutation
+                    // event. Detach them without deleting their executable tree.
+                    const child = this._blocks[input.block];
+                    if (child && !child.shadow && child.parent === block.id) {
+                        child.parent = null;
+                        this._addScript(child.id);
+                    }
+                    this._deleteReplacedShadow(input.shadow, block.id);
+                }
+            }
             break;
         case 'checkbox': {
             // A checkbox usually has a one to one correspondence with the monitor
@@ -837,6 +859,15 @@ class Blocks {
         }
 
         const block = this._blocks[e.id];
+        // Blockly disconnects and disposes a shadow when a reporter covers it.
+        // The VM retains that shadow (as it does for the subsequent delete
+        // event), so keep its parent and script membership intact as well.
+        const shadowParent = this._blocks[e.oldParent];
+        const oldInput = shadowParent && shadowParent.inputs[e.oldInput];
+        if (block.shadow && typeof e.newParent === 'undefined' &&
+            oldInput && oldInput.shadow === e.id) {
+            return;
+        }
         // Track whether a change actually occurred
         // ignoring changes like routine re-positioning
         // of a block when loading a workspace
@@ -855,10 +886,11 @@ class Blocks {
         if (typeof e.oldParent !== 'undefined') {
             const oldParent = this._blocks[e.oldParent];
             if (typeof e.oldInput !== 'undefined' &&
+                oldParent && oldParent.inputs[e.oldInput] &&
                 oldParent.inputs[e.oldInput].block === e.id) {
                 // This block was connected to the old parent's input.
                 oldParent.inputs[e.oldInput].block = null;
-            } else if (oldParent.next === e.id) {
+            } else if (oldParent && oldParent.next === e.id) {
                 // This block was connected to the old parent's next connection.
                 oldParent.next = null;
             }
@@ -883,6 +915,7 @@ class Blocks {
                 if (Object.prototype.hasOwnProperty.call(this._blocks[e.newParent].inputs, e.newInput)) {
                     oldShadow = this._blocks[e.newParent].inputs[e.newInput].shadow;
                 }
+                const replacedShadow = oldShadow;
 
                 // If the block being attached is itself a shadow, make sure to set
                 // both block and shadow to that blocks ID. This happens when adding
@@ -894,6 +927,9 @@ class Blocks {
                     block: e.id,
                     shadow: oldShadow
                 };
+                if (block.shadow && replacedShadow !== e.id) {
+                    this._deleteReplacedShadow(replacedShadow, e.newParent);
+                }
             }
             this._blocks[e.id].parent = e.newParent;
             didChange = true;
@@ -901,6 +937,21 @@ class Blocks {
         this.resetCache();
 
         if (didChange) this.emitProjectChanged();
+    }
+
+    /**
+     * Remove a default superseded by a mutation or another shadow. A covered
+     * shadow is still referenced by its input and must remain available.
+     * @param {?string} id Shadow ID.
+     * @param {string} parentId Expected owning block.
+     */
+    _deleteReplacedShadow (id, parentId) {
+        const shadow = this._blocks[id];
+        const parent = this._blocks[parentId];
+        if (!shadow || !shadow.shadow || shadow.parent !== parentId || !parent) return;
+        if (parent.next === id || Object.values(parent.inputs).some(input =>
+            input.block === id || input.shadow === id)) return;
+        this.deleteBlock(id);
     }
 
 

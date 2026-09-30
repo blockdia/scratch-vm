@@ -1,3 +1,4 @@
+const sb3 = require('../../src/serialization/sb3');
 const test = require('tap').test;
 const Blocks = require('../../src/engine/blocks');
 const Variable = require('../../src/engine/variable');
@@ -1036,5 +1037,126 @@ test('getAllVariableAndListReferences returns broadcast when we tell it to', t =
     t.equal(varListRefs['mock broadcast message id'][0].type, Variable.BROADCAST_MESSAGE_TYPE);
     t.equal(varListRefs['mock broadcast message id'][0].referencingField.value, 'my message');
 
+    t.end();
+});
+
+test('obscured shadows retain their parent through disconnect, delete and reattach events', t => {
+    const runtime = new Runtime();
+    const blocks = new Blocks(runtime);
+    runtime.getEditingTarget = () => ({blocks});
+    for (const block of [
+        {id: 'p',
+            opcode: 'control_if',
+            parent: null,
+            topLevel: true,
+            shadow: false,
+            next: null,
+            fields: {},
+            inputs: {CONDITION: {name: 'CONDITION', block: 's', shadow: 's'}}},
+        {id: 's',
+            opcode: 'operator_boolean',
+            parent: 'p',
+            topLevel: false,
+            shadow: true,
+            next: null,
+            inputs: {},
+            fields: {VALUE: {name: 'VALUE', value: 'FALSE'}}},
+        {id: 'r',
+            opcode: 'sensing_mousedown',
+            parent: null,
+            topLevel: true,
+            shadow: false,
+            next: null,
+            inputs: {},
+            fields: {}}
+    ]) blocks.createBlock(block);
+    for (let i = 0; i < 3; i++) {
+        blocks.blocklyListen({type: 'move', blockId: 's', oldParentId: 'p', oldInputName: 'CONDITION'});
+        blocks.blocklyListen({type: 'delete', blockId: 's'});
+        blocks.blocklyListen({type: 'move', blockId: 'r', newParentId: 'p', newInputName: 'CONDITION'});
+        t.equal(blocks.getBlock('s').parent, 'p');
+        t.equal(blocks.getBlock('s').topLevel, false);
+        t.notOk(blocks.getScripts().includes('s'));
+        t.same(sb3.serializeBlocks(blocks._blocks)[0].p.inputs.CONDITION, [2, 'r']);
+        t.notOk(sb3.serializeBlocks(blocks._blocks)[0].s, 'default FALSE is omitted');
+        blocks.blocklyListen({type: 'move', blockId: 'r', oldParentId: 'p', oldInputName: 'CONDITION'});
+        blocks.blocklyListen({type: 'move', blockId: 's', newParentId: 'p', newInputName: 'CONDITION'});
+        t.same(blocks.getBlock('p').inputs.CONDITION, {name: 'CONDITION', block: 's', shadow: 's'});
+    }
+    blocks.changeBlock({id: 's', element: 'field', name: 'VALUE', value: 'TRUE'});
+    blocks.blocklyListen({type: 'move', blockId: 's', oldParentId: 'p', oldInputName: 'CONDITION'});
+    blocks.blocklyListen({type: 'delete', blockId: 's'});
+    blocks.blocklyListen({type: 'move', blockId: 'r', newParentId: 'p', newInputName: 'CONDITION'});
+    t.same(sb3.serializeBlocks(blocks._blocks)[0].p.inputs.CONDITION, [3, 'r', 's']);
+    t.ok(sb3.serializeBlocks(blocks._blocks)[0].s, 'TRUE shadow stays serialized');
+    t.end();
+});
+
+test('procedure mutations drop removed inputs but preserve detached reporters', t => {
+    const runtime = new Runtime();
+    const blocks = new Blocks(runtime);
+    runtime.getEditingTarget = () => ({blocks});
+    blocks.createBlock({id: 'call',
+        opcode: 'procedures_call',
+        parent: null,
+        topLevel: true,
+        inputs: {arg: {name: 'arg', block: 'reporter', shadow: 'default'}},
+        fields: {},
+        next: null});
+    blocks.createBlock({id: 'reporter',
+        opcode: 'operator_not',
+        parent: 'call',
+        topLevel: false,
+        inputs: {},
+        fields: {},
+        next: null,
+        shadow: false});
+    blocks.createBlock({id: 'default',
+        opcode: 'operator_boolean',
+        parent: 'call',
+        topLevel: false,
+        inputs: {},
+        fields: {VALUE: {name: 'VALUE', value: 'TRUE'}},
+        next: null,
+        shadow: true});
+    blocks.changeBlock({id: 'call',
+        element: 'mutation',
+        value: '<mutation proccode="test" argumentids="[]"></mutation>'});
+    t.same(blocks.getBlock('call').inputs, {});
+    t.notOk(blocks.getBlock('default'));
+    t.equal(blocks.getBlock('reporter').parent, null);
+    t.ok(blocks.getBlock('reporter').topLevel);
+    t.doesNotThrow(() => blocks.blocklyListen({type: 'move',
+        blockId: 'reporter',
+        oldParentId: 'call',
+        oldInputName: 'arg'}), 'later disconnect can reference the removed input');
+    t.end();
+});
+
+test('a replacement parameter shadow removes only its superseded default', t => {
+    const blocks = new Blocks(new Runtime());
+    blocks.createBlock({id: 'p',
+        opcode: 'procedures_prototype',
+        parent: null,
+        topLevel: true,
+        inputs: {arg: {name: 'arg', block: 'old', shadow: 'old'}},
+        fields: {},
+        next: null});
+    for (const id of ['old', 'new']) {
+        blocks.createBlock({id,
+            opcode: 'argument_reporter_boolean',
+            parent: id === 'old' ? 'p' : null,
+            topLevel: id !== 'old',
+            inputs: {},
+            fields: {VALUE: {name: 'VALUE', value: 'flag'}},
+            next: null,
+            shadow: true});
+    }
+    blocks.moveBlock({id: 'new', newParent: 'p', newInput: 'arg'});
+    t.notOk(blocks.getBlock('old'));
+    t.equal(blocks.getBlock('new').parent, 'p');
+    t.same(blocks.getBlock('p').inputs.arg, {name: 'arg', block: 'new', shadow: 'new'});
+    blocks.changeBlock({id: 'p', element: 'mutation', value: '<mutation argumentids="bad"></mutation>'});
+    t.ok(blocks.getBlock('new'), 'malformed signatures do not delete existing defaults');
     t.end();
 });
