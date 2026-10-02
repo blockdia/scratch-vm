@@ -1,6 +1,7 @@
 const StageLayering = require('./stage-layering');
 const uid = require('../util/uid');
 const CloneOption = require('../util/container-clone-option');
+const Transform = require('../util/container-transform');
 
 const ancestors = name => {
     const parts = String(name).split('//');
@@ -23,7 +24,9 @@ class SpriteContainers {
 
     get (path) {
         const value = this.definitions.get(path) || this.cloneDefinitions.get(path);
-        return value ? {path, visible: value.visible} : null;
+        return value ? {path,
+            visible: value.visible,
+            ...(value.transform ? {transform: {...value.transform}} : {})} : null;
     }
 
     serialize () {
@@ -40,7 +43,8 @@ class SpriteContainers {
             for (const entry of data) {
                 if (!entry || typeof entry.path !== 'string' || !entry.path ||
                     !ancestors(`${entry.path}//_`).includes(entry.path)) continue;
-                this.definitions.set(entry.path, {visible: entry.visible !== false});
+                this.definitions.set(entry.path, {visible: entry.visible !== false,
+                    transform: Transform.normalize(entry.transform)});
             }
         }
     }
@@ -63,6 +67,20 @@ class SpriteContainers {
         const container = this.definitions.get(path) || this.cloneDefinitions.get(path);
         if (!container) return false;
         container.visible = Boolean(visible);
+        this.sync();
+        return true;
+    }
+
+    setTransform (path, patch) {
+        const container = this.definitions.get(path) || this.cloneDefinitions.get(path);
+        if (!container || !patch || typeof patch !== 'object' ||
+            Object.keys(patch).some(key => !Object.prototype.hasOwnProperty.call(Transform.defaults, key) ||
+                !Transform.valid(key, patch[key]))) return false;
+        const transform = Transform.normalize({...Transform.defaults, ...container.transform, ...patch});
+        if (transform && this.runtime.renderer && !this.runtime.renderer.updateDrawableParentTransform) {
+            throw new Error('Container transforms require a renderer with parent transform support');
+        }
+        container.transform = transform;
         this.sync();
         return true;
     }
@@ -118,6 +136,7 @@ class SpriteContainers {
             return definition ? {id,
                 path: instance ? instance.path : id,
                 visible: definition.visible,
+                ...(definition.transform ? {transform: {...definition.transform}} : {}),
                 isClone: Boolean(instance)} : null;
         }).filter(Boolean);
     }
@@ -143,7 +162,9 @@ class SpriteContainers {
                     if (!instances.has(container.id)) {
                         const id = `_container_clone_:${uid()}`;
                         instances.set(container.id, id);
-                        this.cloneDefinitions.set(id, {path: container.path, visible: container.visible});
+                        this.cloneDefinitions.set(id, {path: container.path,
+                            visible: container.visible,
+                            transform: container.transform ? {...container.transform} : null});
                     }
                     return instances.get(container.id);
                 });
@@ -231,6 +252,17 @@ class SpriteContainers {
                     target.updateContainerVisibility();
                 }
                 const drawables = target.getDrawableIDs();
+                const matrix = definitions.reduce((parent, container) =>
+                    Transform.multiply(parent, Transform.matrix(container.transform)), Transform.identity);
+                const changed = !target._containerTransform || matrix.some((n, i) =>
+                    n !== target._containerTransform[i]);
+                target._containerTransform = matrix;
+                const renderer = this.runtime.renderer;
+                if (renderer && renderer.updateDrawableParentTransform) {
+                    drawables.forEach(id => renderer.updateDrawableParentTransform(id, matrix));
+                }
+                // Bubbles use world bounds and stay upright at their normal size.
+                if (changed) target.emitVisualChange();
                 const bubble = target.getCustomState('Scratch.looks');
                 if (bubble && bubble.drawableId !== null) drawables.push(bubble.drawableId);
                 memberships.push({containers, drawables});

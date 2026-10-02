@@ -393,12 +393,12 @@ runtimeFunctions.distance = `const distance = menu => {
     } else {
         const distTarget = thread.target.runtime.getSpriteTargetByName(menu);
         if (!distTarget) return 10000;
-        targetX = distTarget.x;
-        targetY = distTarget.y;
+        [targetX, targetY] = distTarget.getWorldPosition();
     }
 
-    const dx = thread.target.x - targetX;
-    const dy = thread.target.y - targetY;
+    const position = thread.target.getWorldPosition();
+    const dx = position[0] - targetX;
+    const dy = position[1] - targetY;
     return Math.sqrt((dx * dx) + (dy * dy));
 }`;
 

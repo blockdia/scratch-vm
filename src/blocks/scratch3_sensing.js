@@ -213,12 +213,12 @@ class Scratch3SensingBlocks {
                 args.DISTANCETOMENU
             );
             if (!distTarget) return 10000;
-            targetX = distTarget.x;
-            targetY = distTarget.y;
+            [targetX, targetY] = distTarget.getWorldPosition();
         }
 
-        const dx = util.target.x - targetX;
-        const dy = util.target.y - targetY;
+        const position = util.target.getWorldPosition();
+        const dx = position[0] - targetX;
+        const dy = position[1] - targetY;
         return Math.sqrt((dx * dx) + (dy * dy));
     }
 

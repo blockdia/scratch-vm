@@ -93,10 +93,9 @@ class Scratch3MotionBlocks {
             targetName = Cast.toString(targetName);
             const goToTarget = this.runtime.getSpriteTargetByName(targetName);
             if (!goToTarget) return;
-            targetX = goToTarget.x;
-            targetY = goToTarget.y;
+            [targetX, targetY] = goToTarget.getWorldPosition();
         }
-        return [targetX, targetY];
+        return util.target.worldToLocal(targetX, targetY);
     }
 
     goTo (args, util) {
@@ -134,10 +133,9 @@ class Scratch3MotionBlocks {
             args.TOWARDS = Cast.toString(args.TOWARDS);
             const pointTarget = this.runtime.getSpriteTargetByName(args.TOWARDS);
             if (!pointTarget) return;
-            targetX = pointTarget.x;
-            targetY = pointTarget.y;
+            [targetX, targetY] = pointTarget.getWorldPosition();
         }
-
+        [targetX, targetY] = util.target.worldToLocal(targetX, targetY);
         const dx = targetX - util.target.x;
         const dy = targetY - util.target.y;
         const direction = 90 - MathUtil.radToDeg(Math.atan2(dy, dx));
@@ -227,8 +225,11 @@ class Scratch3MotionBlocks {
         }
         // Point away from the nearest edge.
         const radians = MathUtil.degToRad(90 - target.direction);
-        let dx = Math.cos(radians);
-        let dy = -Math.sin(radians);
+        const origin = target.getWorldPosition();
+        const ahead = target.localToWorld(target.x + Math.cos(radians), target.y + Math.sin(radians));
+        const length = Math.hypot(ahead[0] - origin[0], ahead[1] - origin[1]);
+        let dx = (ahead[0] - origin[0]) / length;
+        let dy = -(ahead[1] - origin[1]) / length;
         if (nearestEdge === 'left') {
             dx = Math.max(0.2, Math.abs(dx));
         } else if (nearestEdge === 'top') {
@@ -238,7 +239,8 @@ class Scratch3MotionBlocks {
         } else if (nearestEdge === 'bottom') {
             dy = 0 - Math.max(0.2, Math.abs(dy));
         }
-        const newDirection = MathUtil.radToDeg(Math.atan2(dy, dx)) + 90;
+        const local = target.worldToLocal(origin[0] + dx, origin[1] - dy);
+        const newDirection = 90 - MathUtil.radToDeg(Math.atan2(local[1] - target.y, local[0] - target.x));
         target.setDirection(newDirection);
         // Keep within the stage.
         const fencedPosition = target.keepInFence(target.x, target.y);

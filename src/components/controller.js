@@ -59,6 +59,7 @@ class ComponentController {
 
     localPoint (x, y) {
         const target = this.target;
+        [x, y] = target.worldToLocal(x, y);
         const {direction, scale} = target._getRenderedDirectionAndScale();
         const angle = (90 - direction) * Math.PI / 180;
         const dx = x - target.x;

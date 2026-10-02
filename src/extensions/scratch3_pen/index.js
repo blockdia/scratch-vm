@@ -196,7 +196,10 @@ class Scratch3PenBlocks {
             const penSkinId = this._getPenLayerID();
             if (penSkinId >= 0) {
                 const penState = this._getPenState(target);
-                this.runtime.renderer.penLine(penSkinId, penState.penAttributes, oldX, oldY, target.x, target.y);
+                const previous = target.localToWorld(oldX, oldY);
+                const current = target.getWorldPosition();
+                this.runtime.renderer.penLine(penSkinId, penState.penAttributes,
+                    previous[0], previous[1], current[0], current[1]);
                 this.runtime.requestRedraw();
             }
         }
@@ -562,7 +565,8 @@ class Scratch3PenBlocks {
 
         const penSkinId = this._getPenLayerID();
         if (penSkinId >= 0) {
-            this.runtime.renderer.penPoint(penSkinId, penState.penAttributes, target.x, target.y);
+            const position = target.getWorldPosition();
+            this.runtime.renderer.penPoint(penSkinId, penState.penAttributes, position[0], position[1]);
             this.runtime.requestRedraw();
         }
     }

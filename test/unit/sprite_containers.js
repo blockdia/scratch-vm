@@ -4,6 +4,8 @@ const Sprite = require('../../src/sprites/sprite');
 const Model = require('../../src/components/model');
 const ComponentRenderer = require('../fixtures/component-renderer');
 const CloneOption = require('../../src/util/container-clone-option');
+const interpolation = require('../../src/engine/tw-interpolate');
+const Pen = require('../../src/extensions/scratch3_pen');
 
 const setup = () => {
     const vm = new VM();
@@ -412,6 +414,144 @@ test('clone myself followed by clone my container copies both members and counts
     t.equal(copy[0]._containerClonePaths[0], copy[1]._containerClonePaths[0], 'two cloned members in one instance');
     t.ok(copy.every(target => !target.isOriginal && target.sprite === original.sprite));
     t.notOk(vm.runtime.targets[1]._containerClonePaths, 'the first sprite clone stays in its source container');
+    vm.quit();
+    t.end();
+});
+
+
+test('nested transforms preserve local state, component interaction and independent clone instances', t => {
+    const {vm, renderer, add} = setup();
+    const target = add('A//B//one');
+    target.setXY(10, 20);
+    target.setDirection(90);
+    vm.setSpriteFolderContainer('A', true);
+    vm.setSpriteFolderContainer('A//B', true);
+    t.ok(vm.setSpriteContainerTransform('A', {x: 100, y: 50, direction: 180, size: 200}));
+    t.ok(vm.setSpriteContainerTransform('A//B', {x: 5, y: 10, size: 200}));
+    const near = (actual, expected) => actual.forEach((n, i) => t.ok(Math.abs(n - expected[i]) < 1e-8));
+    near(target.getWorldPosition(), [200, 0]);
+    near(target.worldToLocal(200, 0), [10, 20]);
+    t.same([target.x, target.y, target.direction, target.size], [10, 20, 90, 100]);
+    target.setComponent(Model.create('slider'));
+    for (const id of target.getDrawableIDs()) {
+        t.same(renderer._allDrawables[id].parentTransform, target._containerTransform);
+    }
+    const world = target.localToWorld(target.x + 35, target.y);
+    near(target.componentController.localPoint(...world), [35, 0]);
+    const [clone] = vm.runtime.spriteContainers.createClone('A//B');
+    const instance = vm.runtime.spriteContainers.getContainingContainer(clone).id;
+    near(clone.getWorldPosition(), [200, 0]);
+    vm.setSpriteContainerTransform('A//B', {x: 25});
+    near(clone.getWorldPosition(), [200, 0]);
+    vm.setSpriteContainerTransform(instance, {y: 20});
+    near(clone.getWorldPosition(), [220, 0]);
+    near(target.getWorldPosition(), [200, -40]);
+    const saved = JSON.parse(vm.toJSON()).spriteContainers;
+    t.equal(saved.length, 2, 'runtime instances are not saved');
+    t.equal(saved[1].transform.x, 25);
+    saved[1].transform.x = 999;
+    t.equal(vm.runtime.spriteContainers.get('A//B').transform.x, 25, 'snapshots cannot mutate state');
+    vm.setSpriteFolderContainer('A//B', false);
+    near(target.getWorldPosition(), [140, 30]);
+    vm.setSpriteFolderContainer('A', false);
+    near(target.getWorldPosition(), [10, 20]);
+    vm.quit();
+    t.end();
+});
+
+test('transform validation and metadata loading reject singular and non-finite values', t => {
+    const {vm, add} = setup();
+    add('A//one');
+    vm.setSpriteFolderContainer('A', true);
+    for (const patch of [{size: 0}, {size: -100}, {x: NaN}, {direction: Infinity},
+        {rotationStyle: 'invalid'}, {rotation: 90}, {bad: 1}]) {
+        t.notOk(vm.setSpriteContainerTransform('A', patch));
+    }
+    t.same(vm.runtime.spriteContainers.get('A'), {path: 'A', visible: true});
+    t.ok(vm.setSpriteContainerTransform('A', {direction: 270, rotationStyle: 'left-right'}));
+    t.equal(vm.runtime.spriteContainers.get('A').transform.direction, -90);
+    const data = vm.runtime.spriteContainers.serialize();
+    vm.runtime.spriteContainers.load(data);
+    t.same(vm.runtime.spriteContainers.serialize(), data);
+    vm.runtime.spriteContainers.load([{path: 'A', transform: {size: 0, y: Infinity, x: 20}}]);
+    t.same(vm.runtime.spriteContainers.get('A').transform,
+        {x: 20, y: 0, size: 100, direction: 90, rotationStyle: 'all around'});
+    vm.quit();
+    t.end();
+});
+
+test('motion and distance use world destinations and local movement coordinates', t => {
+    const {vm, add} = setup();
+    const target = add('A//one');
+    const other = add('two');
+    vm.runtime.runtimeOptions.fencing = false;
+    target.setXY(10, 0);
+    other.setXY(100, 20);
+    vm.setSpriteFolderContainer('A', true);
+    vm.setSpriteContainerTransform('A', {x: 100, direction: 180, size: 200});
+    const util = {target, ioQuery: (device, method) => (method === 'getScratchX' ? 100 : 20)};
+    const motion = vm.runtime.ext_scratch3_motion;
+    const sensing = vm.runtime.ext_scratch3_sensing;
+    t.equal(sensing.distanceTo({DISTANCETOMENU: 'two'}, util), 40);
+    motion.pointTowards({TOWARDS: 'two'}, util);
+    t.ok(Math.abs(target.direction + 90) < 1e-8, 'world upward maps to local left');
+    motion.goTo({TO: 'two'}, util);
+    t.ok(Math.abs(target.x + 10) < 1e-8);
+    t.ok(Math.abs(target.y) < 1e-8);
+    t.ok(sensing.distanceTo({DISTANCETOMENU: '_mouse_'}, util) < 1e-8);
+    vm.quit();
+    t.end();
+});
+
+
+test('interpolation stays local while parent matrices and pen positions remain in world space', t => {
+    const {vm, renderer, add} = setup();
+    const target = add('A//one');
+    vm.runtime.runtimeOptions.fencing = false;
+    target.setXY(10, 20);
+    vm.setSpriteFolderContainer('A', true);
+    vm.setSpriteContainerTransform('A', {x: 100, direction: 180, size: 200});
+    const drawable = renderer._allDrawables[target.drawableID];
+    drawable.getAABB = () => ({width: 40, height: 40});
+    interpolation.setupInitialState(vm.runtime);
+    target.setXY(30, 40);
+    interpolation.interpolate(vm.runtime, 0.5);
+    t.same(drawable._position, [20, 30], 'interpolation writes local positions');
+    t.same(drawable.parentTransform, target._containerTransform, 'parent matrix survives interpolation');
+    interpolation.setupInitialState(vm.runtime);
+    t.same(drawable._position, [30, 40], 'next VM tick restores the local endpoint');
+    const pen = new Pen(vm.runtime);
+    pen._getPenLayerID = () => 1;
+    let line;
+    let point;
+    renderer.penLine = (id, attributes, ...coordinates) => {
+        line = coordinates;
+    };
+    renderer.penPoint = (id, attributes, ...coordinates) => {
+        point = coordinates;
+    };
+    pen._penDown(target);
+    target.setXY(50, 60);
+    t.ok(Math.abs(point[0] - 180) < 1e-8 && Math.abs(point[1] + 60) < 1e-8);
+    t.ok(line.every((n, i) => Math.abs(n - [180, -60, 220, -100][i]) < 1e-8));
+    vm.quit();
+    t.end();
+});
+
+
+test('container direction and rotation styles follow native sprite semantics', t => {
+    const {vm, add} = setup();
+    const target = add('A//one');
+    target.setXY(10, 20);
+    vm.setSpriteFolderContainer('A', true);
+    vm.setSpriteContainerTransform('A', {direction: -90});
+    const near = expected => target.getWorldPosition().forEach((n, i) => t.ok(Math.abs(n - expected[i]) < 1e-8));
+    near([-10, -20]);
+    vm.setSpriteContainerTransform('A', {rotationStyle: 'left-right'});
+    near([-10, 20]);
+    vm.setSpriteContainerTransform('A', {rotationStyle: "don't rotate", size: 200});
+    near([20, 40]);
+    t.same([target.x, target.y, target.direction, target.size], [10, 20, 90, 100]);
     vm.quit();
     t.end();
 });

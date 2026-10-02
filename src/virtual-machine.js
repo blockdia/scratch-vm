@@ -1392,6 +1392,13 @@ class VirtualMachine extends EventEmitter {
         if (containers.setOrder(path, order, relative)) this.emitTargetsUpdate(!containers.cloneDefinitions.has(path));
     }
 
+    setSpriteContainerTransform (path, transform) {
+        const containers = this.runtime.spriteContainers;
+        const changed = containers.setTransform(path, transform);
+        if (changed) this.emitTargetsUpdate(!containers.cloneDefinitions.has(path));
+        return changed;
+    }
+
     /**
      * Rename a sprite.
      * @param {string} targetId ID of a target whose sprite to rename.

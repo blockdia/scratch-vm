@@ -6,6 +6,7 @@ const Target = require('../engine/target');
 const StageLayering = require('../engine/stage-layering');
 const ComponentModel = require('../components/model');
 const ComponentController = require('../components/controller');
+const ContainerTransform = require('../util/container-transform');
 
 /**
  * Rendered target: instance of a sprite (clone), or the stage.
@@ -235,11 +236,26 @@ class RenderedTarget extends Target {
 
     _componentFence (x, y) {
         const bounds = this._componentBounds();
+        const current = this.localToWorld(this.x, this.y);
+        const next = this.localToWorld(x, y);
         const inset = Math.min(15, Math.floor(Math.min(bounds.right - bounds.left, bounds.top - bounds.bottom) / 2));
         const sx = (this.runtime.stageWidth / 2) - inset;
         const sy = (this.runtime.stageHeight / 2) - inset;
-        return [MathUtil.clamp(x, this.x - sx - bounds.right, this.x + sx - bounds.left),
-            MathUtil.clamp(y, this.y - sy - bounds.top, this.y + sy - bounds.bottom)];
+        return this.worldToLocal(
+            MathUtil.clamp(next[0], current[0] - sx - bounds.right, current[0] + sx - bounds.left),
+            MathUtil.clamp(next[1], current[1] - sy - bounds.top, current[1] + sy - bounds.bottom));
+    }
+
+    localToWorld (x, y) {
+        return ContainerTransform.point(this._containerTransform || ContainerTransform.identity, x, y);
+    }
+
+    worldToLocal (x, y) {
+        return ContainerTransform.inversePoint(this._containerTransform || ContainerTransform.identity, x, y);
+    }
+
+    getWorldPosition () {
+        return this.localToWorld(this.x, this.y);
     }
 
     get audioPlayer () {
@@ -1043,10 +1059,12 @@ class RenderedTarget extends Target {
         const bounds = this.getBounds();
         if (!bounds) return;
         // Adjust the known bounds to the target position.
-        bounds.left += (newX - this.x);
-        bounds.right += (newX - this.x);
-        bounds.top += (newY - this.y);
-        bounds.bottom += (newY - this.y);
+        const current = this.getWorldPosition();
+        const next = this.localToWorld(newX, newY);
+        bounds.left += next[0] - current[0];
+        bounds.right += next[0] - current[0];
+        bounds.top += next[1] - current[1];
+        bounds.bottom += next[1] - current[1];
         // Find how far we need to move the target position.
         let dx = 0;
         let dy = 0;
@@ -1062,7 +1080,7 @@ class RenderedTarget extends Target {
         if (bounds.bottom < fence.bottom) {
             dy += fence.bottom - bounds.bottom;
         }
-        return [newX + dx, newY + dy];
+        return this.worldToLocal(next[0] + dx, next[1] + dy);
     }
 
     /**
