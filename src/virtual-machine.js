@@ -18,7 +18,6 @@ const Sprite = require('./sprites/sprite');
 const createComponentTemplate = require('./components/templates');
 const ComponentModel = require('./components/model');
 const StringUtil = require('./util/string-util');
-const CloneOption = require('./util/container-clone-option');
 const formatMessage = require('format-message');
 
 const Variable = require('./engine/variable');
@@ -31,7 +30,7 @@ require('canvas-toBlob');
 const {exportCostume} = require('./serialization/tw-costume-import-export');
 const Base64Util = require('./util/base64-util');
 
-const RESERVED_NAMES = ['_mouse_', '_stage_', '_edge_', '_myself_', '_mycontainer_', '_random_'];
+const RESERVED_NAMES = ['_mouse_', '_stage_', '_edge_', '_myself_', '_random_'];
 
 const CORE_EXTENSIONS = [
     // 'motion',
@@ -1379,7 +1378,12 @@ class VirtualMachine extends EventEmitter {
 
     // Container controls used by the sprite-folder context menu.
     setSpriteFolderContainer (path, enabled) {
-        if (this.runtime.spriteContainers.set(path, enabled)) this.emitTargetsUpdate();
+        if (this.runtime.spriteContainers.set(path, enabled)) {
+            if (enabled && !this.extensionManager.isExtensionLoaded('containers')) {
+                this.extensionManager.loadExtensionIdSync('containers');
+            }
+            this.emitTargetsUpdate();
+        }
     }
 
     setSpriteContainerVisible (path, visible) {
@@ -1414,7 +1418,7 @@ class VirtualMachine extends EventEmitter {
             if (!sprite) {
                 throw new Error('No sprite associated with this target.');
             }
-            if (newName && RESERVED_NAMES.indexOf(newName) === -1 && CloneOption.decode(newName) === null) {
+            if (newName && RESERVED_NAMES.indexOf(newName) === -1) {
                 const names = this.runtime.targets
                     .filter(runtimeTarget => runtimeTarget.isSprite() && runtimeTarget.id !== target.id)
                     .map(runtimeTarget => runtimeTarget.sprite.name);
@@ -1558,7 +1562,9 @@ class VirtualMachine extends EventEmitter {
      */
     setLocale (locale, messages) {
         if (locale !== formatMessage.setup().locale) {
-            formatMessage.setup({locale: locale, translations: {[locale]: messages}});
+            // format-message replaces strings with cached objects. Keep the GUI's shared
+            // messages intact so react-intl can still translate menu labels using them.
+            formatMessage.setup({locale: locale, translations: {[locale]: {...messages}}});
         }
         this.emit('LOCALE_CHANGED', locale);
         return this.extensionManager.refreshBlocks();

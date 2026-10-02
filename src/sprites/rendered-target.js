@@ -1094,31 +1094,47 @@ class RenderedTarget extends Target {
             return null; // Hit max clone limit, or this is the stage.
         }
         this.runtime.changeCloneCounter(1);
-        const newClone = this.sprite.createClone();
-        const paths = options.containerPaths || this._containerClonePaths;
-        newClone._containerClonePaths = paths ? paths.slice() : null;
-        // Copy all properties.
-        newClone.x = this.x;
-        newClone.y = this.y;
-        newClone.direction = this.direction;
-        newClone.draggable = this.draggable;
-        newClone.visible = this.visible;
-        newClone.size = this.size;
-        newClone.currentCostume = this.currentCostume;
-        newClone.rotationStyle = this.rotationStyle;
-        newClone.effects = Clone.simple(this.effects);
-        newClone.variables = this.duplicateVariables();
-        newClone._edgeActivatedHatValues = Clone.simple(this._edgeActivatedHatValues);
-        if (this.componentController) {
-            newClone.component = ComponentModel.copy(this.component);
-            newClone.componentController = new ComponentController(newClone);
-        } else if (this.component) {
-            newClone.component = ComponentModel.copy(this.component);
-            newClone.componentError = this.componentError;
+        const cloneIndex = this.sprite.clones.length;
+        let newClone;
+        try {
+            newClone = this.sprite.createClone();
+            const paths = options.containerPaths || this._containerClonePaths;
+            newClone._containerClonePaths = paths ? paths.slice() : null;
+            // Copy all properties.
+            newClone.x = this.x;
+            newClone.y = this.y;
+            newClone.direction = this.direction;
+            newClone.draggable = this.draggable;
+            newClone.visible = this.visible;
+            newClone.size = this.size;
+            newClone.currentCostume = this.currentCostume;
+            newClone.rotationStyle = this.rotationStyle;
+            newClone.effects = Clone.simple(this.effects);
+            newClone.variables = this.duplicateVariables();
+            newClone._edgeActivatedHatValues = Clone.simple(this._edgeActivatedHatValues);
+            if (this.componentController) {
+                newClone.component = ComponentModel.copy(this.component);
+                newClone.componentController = new ComponentController(newClone);
+            } else if (this.component) {
+                newClone.component = ComponentModel.copy(this.component);
+                newClone.componentError = this.componentError;
+            }
+            newClone.initDrawable(StageLayering.SPRITE_LAYER, options.startHats !== false);
+            newClone.updateAllDrawableProperties();
+            return newClone;
+        } catch (error) {
+            // createClone registers the member before firing targetWasCreated, which can throw
+            // before it returns. Clean up that member even if newClone was never assigned.
+            const failedClone = newClone || this.sprite.clones[cloneIndex];
+            if (failedClone) {
+                if (this.runtime.targets.includes(failedClone)) this.runtime.disposeTarget(failedClone);
+                else failedClone.dispose();
+                this.runtime.spriteContainers.sync();
+            } else {
+                this.runtime.changeCloneCounter(-1);
+            }
+            throw error;
         }
-        newClone.initDrawable(StageLayering.SPRITE_LAYER, options.startHats !== false);
-        newClone.updateAllDrawableProperties();
-        return newClone;
     }
 
     /**

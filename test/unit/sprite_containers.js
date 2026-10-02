@@ -3,7 +3,8 @@ const VM = require('../../src/virtual-machine');
 const Sprite = require('../../src/sprites/sprite');
 const Model = require('../../src/components/model');
 const ComponentRenderer = require('../fixtures/component-renderer');
-const CloneOption = require('../../src/util/container-clone-option');
+const ContainerOption = require('../../src/util/container-option');
+const ContainersExtension = require('../../src/extensions/scratch3_containers');
 const interpolation = require('../../src/engine/tw-interpolate');
 const Pen = require('../../src/extensions/scratch3_pen');
 
@@ -27,7 +28,7 @@ const setup = () => {
         target.updateAllDrawableProperties();
         return target;
     };
-    return {vm, renderer, add};
+    return {vm, renderer, add, extension: new ContainersExtension(vm.runtime)};
 };
 
 test('container visibility composes without overwriting sprite or child container visibility', t => {
@@ -143,7 +144,7 @@ test('container cloning copies all live descendants once and starts hats after t
         return [];
     };
     const containers = vm.runtime.spriteContainers;
-    vm.runtime.ext_scratch3_control._createClone(CloneOption.encode('World//A'), outside);
+    new ContainersExtension(vm.runtime).createClone({CONTAINER: 'World//A'}, {target: outside});
     vm.runtime.startHats = startHats;
     const clones = vm.runtime.targets.filter(target => !before.includes(target));
     t.equal(clones.length, 3, 'existing sprite clones are included and neighboring folders are excluded');
@@ -222,30 +223,31 @@ test('container clone selections follow folder renames without changing sprite o
     vm.setSpriteFolderContainer('A//N', true);
     const blocks = target.blocks;
     for (const [id, opcode, value] of [
-        ['outer', 'control_create_clone_of_menu', CloneOption.encode('A')],
-        ['inner', 'control_create_clone_of_menu', CloneOption.encode('A//N')],
+        ['outer', 'containers_menu_containers', 'A'],
+        ['inner', 'containers_menu_containers', 'A//N'],
         ['sprite', 'control_create_clone_of_menu', 'A//N//one'],
-        ['text', 'text', CloneOption.encode('A')]
+        ['text', 'text', 'A']
     ]) {
         blocks.createBlock({id,
             opcode,
             inputs: {},
-            fields: opcode === 'text' ? {TEXT: {name: 'TEXT', value}} : {CLONE_OPTION: {name: 'CLONE_OPTION', value}},
+            fields: opcode === 'text' ? {TEXT: {name: 'TEXT', value}} :
+                opcode === 'containers_menu_containers' ? {containers: {name: 'containers', value}} :
+                    {CLONE_OPTION: {name: 'CLONE_OPTION', value}},
             next: null,
             parent: null,
             topLevel: true,
             shadow: true});
     }
     const containers = vm.runtime.spriteContainers;
-    t.same(containers.getCloneMenu(), [['A', CloneOption.encode('A')], ['A//N', CloneOption.encode('A//N')]]);
     containers.beginUpdate();
     containers.move('A', 'B');
     vm.renameSprite(target.id, 'B//N//one');
     containers.endUpdate();
-    t.equal(blocks.getBlock('outer').fields.CLONE_OPTION.value, CloneOption.encode('B'));
-    t.equal(blocks.getBlock('inner').fields.CLONE_OPTION.value, CloneOption.encode('B//N'));
+    t.equal(blocks.getBlock('outer').fields.containers.value, 'B');
+    t.equal(blocks.getBlock('inner').fields.containers.value, 'B//N');
     t.equal(blocks.getBlock('sprite').fields.CLONE_OPTION.value, 'B//N//one');
-    t.equal(blocks.getBlock('text').fields.TEXT.value, CloneOption.encode('A'));
+    t.equal(blocks.getBlock('text').fields.TEXT.value, 'A');
     t.equal(containers.createClone('B').length, 1);
     const saved = JSON.parse(vm.toJSON());
     t.equal(saved.targets.length, 1, 'clones are excluded from project serialization');
@@ -307,7 +309,75 @@ test('a refused member rolls back the partially constructed instance without sta
     t.end();
 });
 
-test('my container is the nearest real container and replaces only its named menu option', t => {
+test('failed member initialization rolls back counters, sprite lists, drawables and container instances', t => {
+    for (const phase of ['created', 'variables', 'drawable']) {
+        const {vm, renderer, add} = setup();
+        const first = add('A//one');
+        const second = add('A//two');
+        vm.setSpriteFolderContainer('A', true);
+        const expected = new Error(`failed during ${phase}`);
+        let hats = 0;
+        vm.runtime.startHats = () => hats++;
+        if (phase === 'created') {
+            vm.runtime.on('targetWasCreated', target => {
+                if (!target.isOriginal && target.sprite === second.sprite) throw expected;
+            });
+        } else if (phase === 'variables') {
+            second.duplicateVariables = () => {
+                throw expected;
+            };
+        } else {
+            const update = renderer.updateDrawablePosition.bind(renderer);
+            renderer.updateDrawablePosition = (id, position) => {
+                if (id > second.drawableID + 1) throw expected;
+                update(id, position);
+            };
+        }
+        t.throws(() => vm.runtime.spriteContainers.createClone('A'), expected, phase);
+        t.equal(hats, 0, `${phase}: no clone hats started`);
+        t.equal(vm.runtime._cloneCounter, 0, `${phase}: no leaked clone quota`);
+        t.same([first.sprite.clones.length, second.sprite.clones.length], [1, 1], `${phase}: no orphan sprite clone`);
+        t.equal(renderer._allDrawables.filter(Boolean).length, 2, `${phase}: no orphan drawable`);
+        t.equal(vm.runtime.spriteContainers.cloneDefinitions.size, 0, `${phase}: no orphan instance`);
+        t.same(vm.runtime.targets.map(target => target.id), [first.id, second.id]);
+        vm.quit();
+    }
+    t.end();
+});
+
+test('native clone inputs address only sprites, including names formerly reserved for containers', t => {
+    const {vm, add} = setup();
+    const member = add('A//member');
+    add('A//other');
+    const named = add('Named');
+    vm.setSpriteFolderContainer('A', true);
+    const control = vm.runtime.ext_scratch3_control;
+    for (const option of [ContainerOption.SELF, '_container_:A']) {
+        control._createClone(option, member);
+        t.equal(vm.runtime._cloneCounter, 0, 'obsolete container selection has no special meaning');
+        vm.renameSprite(named.id, option);
+        t.equal(named.getName(), option, 'container syntax no longer reserves sprite names');
+        member.blocks.createBlock({id: option,
+            opcode: 'control_create_clone_of_menu',
+            fields: {CLONE_OPTION: {name: 'CLONE_OPTION', value: option}},
+            inputs: {},
+            topLevel: true,
+            shadow: true,
+            parent: null,
+            next: null});
+        control._createClone(option, member);
+        t.equal(vm.runtime._cloneCounter, 1, 'only the named sprite is cloned');
+        t.equal(vm.runtime.targets[vm.runtime.targets.length - 1].sprite, named.sprite);
+        t.equal(vm.runtime.spriteContainers.cloneDefinitions.size, 0);
+        vm.stopAll();
+        vm.renameSprite(named.id, 'Renamed');
+        t.equal(member.blocks.getBlock(option).fields.CLONE_OPTION.value, 'Renamed', 'ordinary rename reference');
+    }
+    vm.quit();
+    t.end();
+});
+
+test('my container selects the nearest real container, excludes stage and follows folder moves', t => {
     const {vm, add} = setup();
     const outer = add('A//ordinary//one');
     const inner = add('A//N//ordinary//two');
@@ -317,14 +387,14 @@ test('my container is the nearest real container and replaces only its named men
     vm.setSpriteFolderContainer('A', true);
     vm.setSpriteFolderContainer('A//N', true);
     const containers = vm.runtime.spriteContainers;
-    t.same(containers.getCloneMenu(outer), [[null, CloneOption.SELF], ['A//N', CloneOption.encode('A//N')]]);
-    t.same(containers.getCloneMenu(inner), [[null, CloneOption.SELF], ['A', CloneOption.encode('A')]]);
-    t.same(containers.getCloneMenu(outside), containers.getCloneMenu());
-    t.same(containers.getCloneMenu(stage), containers.getCloneMenu());
-    vm.runtime.ext_scratch3_control._createClone(CloneOption.SELF, outside);
-    vm.runtime.ext_scratch3_control._createClone(CloneOption.SELF, stage);
+    t.equal(containers.getContainingContainer(outer).id, 'A');
+    t.equal(containers.getContainingContainer(inner).id, 'A//N');
+    t.equal(containers.getContainingContainer(outside), null);
+    t.equal(containers.getContainingContainer(stage), null);
+    new ContainersExtension(vm.runtime).createClone({CONTAINER: ContainerOption.SELF}, {target: outside});
+    new ContainersExtension(vm.runtime).createClone({CONTAINER: ContainerOption.SELF}, {target: stage});
     t.equal(vm.runtime._cloneCounter, 0, 'a target with no containing container does not clone');
-    vm.runtime.ext_scratch3_control._createClone(CloneOption.SELF, inner);
+    new ContainersExtension(vm.runtime).createClone({CONTAINER: ContainerOption.SELF}, {target: inner});
     t.equal(vm.runtime._cloneCounter, 1, 'nested selection does not clone the outer container');
     t.equal(vm.runtime.targets[vm.runtime.targets.length - 1].sprite, inner.sprite);
     vm.stopAll();
@@ -332,7 +402,7 @@ test('my container is the nearest real container and replaces only its named men
     containers.move('A//N', 'B');
     vm.renameSprite(inner.id, 'B//ordinary//two');
     containers.endUpdate();
-    vm.runtime.ext_scratch3_control._createClone(CloneOption.SELF, inner);
+    new ContainersExtension(vm.runtime).createClone({CONTAINER: ContainerOption.SELF}, {target: inner});
     t.equal(containers.getTargetContainers(vm.runtime.targets[vm.runtime.targets.length - 1])[0].path, 'B',
         'relative selection follows the current membership after a move');
     vm.quit();
@@ -353,7 +423,7 @@ test('my container selects the current instance while named options select the s
     a.variables.value.value = 73;
     b.componentController.setProperties({value: 64});
     containers.setVisible(a._containerClonePaths[0], false);
-    vm.runtime.ext_scratch3_control._createClone(CloneOption.SELF, a);
+    new ContainersExtension(vm.runtime).createClone({CONTAINER: ContainerOption.SELF}, {target: a});
     const [copyA, copyB] = vm.runtime.targets.slice(-2);
     t.equal(copyA.variables.value.value, 73, 'local data comes from the current clone');
     t.same([copyA.x, copyA.y], [45, 20]);
@@ -361,11 +431,11 @@ test('my container selects the current instance while named options select the s
     t.not(copyA._containerClonePaths[0], a._containerClonePaths[0]);
     t.equal(copyA._containerClonePaths[0], copyB._containerClonePaths[0]);
     t.notOk(copyA.isEffectivelyVisible(), 'instance visibility is copied');
-    vm.runtime.ext_scratch3_control._createClone(CloneOption.encode('A'), a);
+    new ContainersExtension(vm.runtime).createClone({CONTAINER: 'A'}, {target: a});
     t.equal(vm.runtime.targets.slice(-2)[0].variables.value.value, 10, 'named selection copies the original');
     vm.runtime.disposeTarget(b);
     const count = vm.runtime._cloneCounter;
-    vm.runtime.ext_scratch3_control._createClone(CloneOption.SELF, a);
+    new ContainersExtension(vm.runtime).createClone({CONTAINER: ContainerOption.SELF}, {target: a});
     t.equal(vm.runtime._cloneCounter, count + 1, 'deleted instance members are not resurrected');
     vm.stopAll();
     t.equal(containers.cloneDefinitions.size, 0);
@@ -404,11 +474,11 @@ test('clone myself followed by clone my container copies both members and counts
     const control = vm.runtime.ext_scratch3_control;
     control._createClone('_myself_', original);
     vm.runtime.runtimeOptions.maxClones = 2;
-    control._createClone(CloneOption.SELF, original);
+    new ContainersExtension(vm.runtime).createClone({CONTAINER: ContainerOption.SELF}, {target: original});
     t.equal(vm.runtime._cloneCounter, 1, 'one free slot cannot hold the current two-member container');
     t.equal(vm.runtime.spriteContainers.cloneDefinitions.size, 0, 'no partial container instance');
     vm.runtime.runtimeOptions.maxClones = 3;
-    control._createClone(CloneOption.SELF, original);
+    new ContainersExtension(vm.runtime).createClone({CONTAINER: ContainerOption.SELF}, {target: original});
     const copy = vm.runtime.targets.slice(-2);
     t.equal(vm.runtime._cloneCounter, 3);
     t.equal(copy[0]._containerClonePaths[0], copy[1]._containerClonePaths[0], 'two cloned members in one instance');

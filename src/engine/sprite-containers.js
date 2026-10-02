@@ -1,6 +1,5 @@
 const StageLayering = require('./stage-layering');
 const uid = require('../util/uid');
-const CloneOption = require('../util/container-clone-option');
 const Transform = require('../util/container-transform');
 
 const ancestors = name => {
@@ -119,14 +118,6 @@ class SpriteContainers {
         return containers.length ? containers[containers.length - 1] : null;
     }
 
-    getCloneMenu (target) {
-        const current = this.getContainingContainer(target);
-        const named = this.serialize().filter(({path}) => !current || path !== current.path)
-            .map(({path}) => [path, CloneOption.encode(path)]);
-        // null is a localized relative selection, analogous to Scratch's "myself".
-        return current ? [[null, CloneOption.SELF]].concat(named) : named;
-    }
-
     // The same membership drives rendering, visibility and the editor's layer tree.
     getTargetContainers (target) {
         if (target.isStage) return [];
@@ -184,14 +175,28 @@ class SpriteContainers {
         }
         // New instances are siblings of the source container, immediately behind it.
         if (renderer) {
-            const order = Math.min(...runtime.targets.filter(target =>
-                this.getTargetContainers(target).some(container => container.id === path))
-                .map(target => target.getLayerOrder()));
+            const order = sources.reduce((minimum, target) => Math.min(minimum, target.getLayerOrder()), Infinity);
             this.setOrder(instances.get(path), order === 0 ? -Infinity : order);
         }
         // Hats must see every member, its copied state and its final membership.
         clones.forEach(target => runtime.startHats('control_start_as_clone', null, target));
         return clones;
+    }
+
+    // Only runtime instances can be deleted by scripts; source sprites remain project assets.
+    deleteClone (path) {
+        if (!this.cloneDefinitions.has(path)) return;
+        const members = this.runtime.targets.filter(target => !target.isOriginal && !target.isStage &&
+            this.getTargetContainers(target).some(container => container.id === path));
+        this.beginUpdate();
+        try {
+            for (const target of members) {
+                // RenderedTarget.dispose also stops all scripts belonging to this member.
+                this.runtime.disposeTarget(target);
+            }
+        } finally {
+            this.endUpdate();
+        }
     }
 
     // Rename/reparent an entire folder atomically with its sprite-name changes.
