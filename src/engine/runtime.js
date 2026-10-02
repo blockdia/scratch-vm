@@ -16,6 +16,7 @@ const Thread = require('./thread');
 const log = require('../util/log');
 const maybeFormatMessage = require('../util/maybe-format-message');
 const StageLayering = require('./stage-layering');
+const SpriteContainers = require('./sprite-containers');
 const Variable = require('./variable');
 const xmlEscape = require('../util/xml-escape');
 const ScratchLinkWebSocket = require('../util/scratch-link-websocket');
@@ -218,6 +219,7 @@ class Runtime extends EventEmitter {
          * @type {Array.<!Target>}
          */
         this.targets = [];
+        this.spriteContainers = new SpriteContainers(this);
 
         /**
          * Targets in reverse order of execution. Shares its order with drawables.
@@ -2370,6 +2372,8 @@ class Runtime extends EventEmitter {
         });
 
         this.targets.map(this.disposeTarget, this);
+        this.spriteContainers.load([]);
+        this.spriteContainers.sync();
         this.extensionStorage = {};
         // tw: explicitly emit a MONITORS_UPDATE instead of relying on implicit behavior of _step()
         if (!this._monitorState.empty()) {
@@ -2412,6 +2416,7 @@ class Runtime extends EventEmitter {
     addTarget (target) {
         this.targets.push(target);
         this.executableTargets.push(target);
+        this.spriteContainers.sync();
         if (target.isStage && !this._stageTarget) {
             this._stageTarget = target;
         }

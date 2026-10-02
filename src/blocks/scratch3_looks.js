@@ -235,7 +235,9 @@ class Scratch3LooksBlocks {
             this.runtime.renderer.updateDrawableSkinId(bubbleState.drawableId, bubbleState.skinId);
         }
 
+        this.runtime.renderer.updateDrawableVisible(bubbleState.drawableId, target.isEffectivelyVisible());
         this._positionBubble(target);
+        this.runtime.spriteContainers.sync();
     }
 
     /**

@@ -105,6 +105,7 @@ class RenderedTarget extends Target {
          * @type {boolean}
          */
         this.visible = true;
+        this._containerVisible = true;
 
         /**
          * Size of rendered target as a percent of costume size.
@@ -184,6 +185,7 @@ class RenderedTarget extends Target {
             if (this.componentController) this.componentController.init();
             else this.drawableID = this.renderer.createDrawable(layerGroup);
         }
+        this.runtime.spriteContainers.sync(this);
         // If we're a clone, start the hats.
         if (!this.isOriginal) {
             this.runtime.startHats(
@@ -210,6 +212,7 @@ class RenderedTarget extends Target {
         if (this.renderer && order !== null) {
             this.renderer.setDrawableGroupOrder(this.componentController.group, order === 0 ? -Infinity : order);
         }
+        this.runtime.spriteContainers.sync(this);
         this.runtime.requestRedraw();
         this.runtime.requestTargetsUpdate(this);
     }
@@ -395,9 +398,28 @@ class RenderedTarget extends Target {
         this.runtime.requestTargetsUpdate(this);
     }
 
+    /** @returns {boolean} Visibility after applying all ancestor containers. */
+    isEffectivelyVisible () {
+        return this.visible && this._containerVisible;
+    }
+
+    updateContainerVisibility () {
+        if (!this.isEffectivelyVisible() && this.componentController) this.componentController.cancel();
+        if (this.renderer && this.drawableID !== null) {
+            this.renderer.updateDrawableVisible(this.drawableID, this.isEffectivelyVisible());
+            if (this.componentController) this.componentController.sync();
+            this.emitVisualChange();
+            const bubble = this.getCustomState('Scratch.looks');
+            if (bubble && bubble.drawableId !== null) {
+                this.renderer.updateDrawableVisible(bubble.drawableId, this.isEffectivelyVisible());
+            }
+            this.runtime.requestRedraw();
+        }
+    }
+
     /**
-     * Set visibility; i.e., whether it's shown or hidden.
-     * @param {!boolean} visible True if should be shown.
+     * Set the sprite's own visibility, independently of its containers.
+     * @param {boolean} visible True if the sprite should be shown.
      */
     setVisible (visible) { // used by compiler
         if (this.isStage) {
@@ -406,7 +428,7 @@ class RenderedTarget extends Target {
         this.visible = !!visible;
         if (!this.visible && this.componentController) this.componentController.cancel();
         if (this.renderer) {
-            this.renderer.updateDrawableVisible(this.drawableID, this.visible);
+            this.renderer.updateDrawableVisible(this.drawableID, this.isEffectivelyVisible());
             if (this.componentController) this.componentController.sync();
             if (this.visible) {
                 this.emitVisualChange();
@@ -766,7 +788,7 @@ class RenderedTarget extends Target {
             const {direction, scale} = this._getRenderedDirectionAndScale();
             this.renderer.updateDrawablePosition(this.drawableID, [this.x, this.y]);
             this.renderer.updateDrawableDirectionScale(this.drawableID, direction, scale);
-            this.renderer.updateDrawableVisible(this.drawableID, this.visible);
+            this.renderer.updateDrawableVisible(this.drawableID, this.isEffectivelyVisible());
 
             const costume = this.getCostumes()[this.currentCostume];
             this.renderer.updateDrawableSkinId(this.drawableID, costume.skinId);
@@ -940,6 +962,7 @@ class RenderedTarget extends Target {
         }
 
         this.runtime.setExecutablePosition(this, Infinity);
+        this.runtime.spriteContainers.refreshExecutableOrder();
     }
 
     /**
@@ -953,6 +976,7 @@ class RenderedTarget extends Target {
         }
 
         this.runtime.setExecutablePosition(this, -Infinity);
+        this.runtime.spriteContainers.refreshExecutableOrder();
     }
 
     /**
@@ -965,6 +989,7 @@ class RenderedTarget extends Target {
         }
 
         this.runtime.moveExecutable(this, nLayers);
+        this.runtime.spriteContainers.refreshExecutableOrder();
     }
 
     /**
@@ -977,6 +1002,7 @@ class RenderedTarget extends Target {
         }
 
         this.runtime.moveExecutable(this, -nLayers);
+        this.runtime.spriteContainers.refreshExecutableOrder();
     }
 
     /**
@@ -992,6 +1018,7 @@ class RenderedTarget extends Target {
 
         const executionPosition = this.runtime.executableTargets.indexOf(other);
         this.runtime.setExecutablePosition(this, executionPosition);
+        this.runtime.spriteContainers.refreshExecutableOrder();
     }
 
     /**
