@@ -1,4 +1,5 @@
 const Cast = require('../util/cast');
+const CloneOption = require('../util/container-clone-option');
 
 class Scratch3ControlBlocks {
     constructor (runtime) {
@@ -153,6 +154,16 @@ class Scratch3ControlBlocks {
         this._createClone(Cast.toString(args.CLONE_OPTION), util.target);
     }
     _createClone (cloneOption, target) { // used by compiler
+        if (cloneOption === CloneOption.SELF) {
+            const container = this.runtime.spriteContainers.getContainingContainer(target);
+            if (container) this.runtime.spriteContainers.createClone(container.id);
+            return;
+        }
+        const containerPath = CloneOption.decode(cloneOption);
+        if (containerPath !== null) {
+            this.runtime.spriteContainers.createClone(containerPath);
+            return;
+        }
         // Set clone target
         let cloneTarget;
         if (cloneOption === '_myself_') {

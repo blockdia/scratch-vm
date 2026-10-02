@@ -18,6 +18,7 @@ const Sprite = require('./sprites/sprite');
 const createComponentTemplate = require('./components/templates');
 const ComponentModel = require('./components/model');
 const StringUtil = require('./util/string-util');
+const CloneOption = require('./util/container-clone-option');
 const formatMessage = require('format-message');
 
 const Variable = require('./engine/variable');
@@ -30,7 +31,7 @@ require('canvas-toBlob');
 const {exportCostume} = require('./serialization/tw-costume-import-export');
 const Base64Util = require('./util/base64-util');
 
-const RESERVED_NAMES = ['_mouse_', '_stage_', '_edge_', '_myself_', '_random_'];
+const RESERVED_NAMES = ['_mouse_', '_stage_', '_edge_', '_myself_', '_mycontainer_', '_random_'];
 
 const CORE_EXTENSIONS = [
     // 'motion',
@@ -1382,11 +1383,13 @@ class VirtualMachine extends EventEmitter {
     }
 
     setSpriteContainerVisible (path, visible) {
-        if (this.runtime.spriteContainers.setVisible(path, visible)) this.emitTargetsUpdate();
+        const containers = this.runtime.spriteContainers;
+        if (containers.setVisible(path, visible)) this.emitTargetsUpdate(!containers.cloneDefinitions.has(path));
     }
 
     setSpriteContainerOrder (path, order, relative = false) {
-        if (this.runtime.spriteContainers.setOrder(path, order, relative)) this.emitTargetsUpdate();
+        const containers = this.runtime.spriteContainers;
+        if (containers.setOrder(path, order, relative)) this.emitTargetsUpdate(!containers.cloneDefinitions.has(path));
     }
 
     /**
@@ -1404,7 +1407,7 @@ class VirtualMachine extends EventEmitter {
             if (!sprite) {
                 throw new Error('No sprite associated with this target.');
             }
-            if (newName && RESERVED_NAMES.indexOf(newName) === -1) {
+            if (newName && RESERVED_NAMES.indexOf(newName) === -1 && CloneOption.decode(newName) === null) {
                 const names = this.runtime.targets
                     .filter(runtimeTarget => runtimeTarget.isSprite() && runtimeTarget.id !== target.id)
                     .map(runtimeTarget => runtimeTarget.sprite.name);

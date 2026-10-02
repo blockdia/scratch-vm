@@ -2491,6 +2491,7 @@ class Runtime extends EventEmitter {
         if (this._stageTarget === disposingTarget) {
             this._stageTarget = null;
         }
+        this.spriteContainers.sync();
     }
 
     /**
@@ -2561,6 +2562,7 @@ class Runtime extends EventEmitter {
             }
         }
         this.targets = newTargets;
+        this.spriteContainers.sync();
         // Dispose of the active thread.
         if (this.sequencer.activeThread !== null) {
             this._stopThread(this.sequencer.activeThread);
@@ -3314,10 +3316,11 @@ class Runtime extends EventEmitter {
 
     /**
      * Return whether there are clones available.
+     * @param {number} count Number of clone slots required.
      * @return {boolean} True until the number of clones hits runtimeOptions.maxClones
      */
-    clonesAvailable () {
-        return this._cloneCounter < this.runtimeOptions.maxClones;
+    clonesAvailable (count = 1) {
+        return this._cloneCounter + count <= this.runtimeOptions.maxClones;
     }
 
     /**

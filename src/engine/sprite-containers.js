@@ -1,4 +1,6 @@
 const StageLayering = require('./stage-layering');
+const uid = require('../util/uid');
+const CloneOption = require('../util/container-clone-option');
 
 const ancestors = name => {
     const parts = String(name).split('//');
@@ -12,13 +14,15 @@ class SpriteContainers {
     constructor (runtime) {
         this.runtime = runtime;
         this.definitions = new Map();
+        // Runtime-only container instances. Their IDs never enter project metadata.
+        this.cloneDefinitions = new Map();
         this.depth = 0;
         this.syncing = false;
         this.active = false;
     }
 
     get (path) {
-        const value = this.definitions.get(path);
+        const value = this.definitions.get(path) || this.cloneDefinitions.get(path);
         return value ? {path, visible: value.visible} : null;
     }
 
@@ -31,6 +35,7 @@ class SpriteContainers {
 
     load (data) {
         this.definitions.clear();
+        this.cloneDefinitions.clear();
         if (Array.isArray(data)) {
             for (const entry of data) {
                 if (!entry || typeof entry.path !== 'string' || !entry.path ||
@@ -55,7 +60,7 @@ class SpriteContainers {
     }
 
     setVisible (path, visible) {
-        const container = this.definitions.get(path);
+        const container = this.definitions.get(path) || this.cloneDefinitions.get(path);
         if (!container) return false;
         container.visible = Boolean(visible);
         this.sync();
@@ -63,7 +68,7 @@ class SpriteContainers {
     }
 
     setOrder (path, order, relative = false) {
-        if (!this.definitions.has(path)) return false;
+        if (!this.definitions.has(path) && !this.cloneDefinitions.has(path)) return false;
         const renderer = this.runtime.renderer;
         if (renderer && renderer.setDrawableContainerOrder) {
             renderer.setDrawableContainerOrder(path, order, StageLayering.SPRITE_LAYER, relative);
@@ -77,7 +82,7 @@ class SpriteContainers {
     // request must not move a child past its container in the execution list.
     refreshExecutableOrder () {
         const renderer = this.runtime.renderer;
-        if (!this.definitions.size || !renderer || !renderer.getDrawableOrder) return;
+        if ((!this.definitions.size && !this.cloneDefinitions.size) || !renderer || !renderer.getDrawableOrder) return;
         this.runtime.executableTargets.sort((a, b) =>
             renderer.getDrawableOrder(a.drawableID) - renderer.getDrawableOrder(b.drawableID));
     }
@@ -91,10 +96,88 @@ class SpriteContainers {
         if (!this.depth) this.sync();
     }
 
+    getContainingContainer (target) {
+        const containers = target ? this.getTargetContainers(target) : [];
+        return containers.length ? containers[containers.length - 1] : null;
+    }
+
+    getCloneMenu (target) {
+        const current = this.getContainingContainer(target);
+        const named = this.serialize().filter(({path}) => !current || path !== current.path)
+            .map(({path}) => [path, CloneOption.encode(path)]);
+        // null is a localized relative selection, analogous to Scratch's "myself".
+        return current ? [[null, CloneOption.SELF]].concat(named) : named;
+    }
+
+    // The same membership drives rendering, visibility and the editor's layer tree.
+    getTargetContainers (target) {
+        if (target.isStage) return [];
+        return (target._containerClonePaths || ancestors(target.getName())).map(id => {
+            const instance = this.cloneDefinitions.get(id);
+            const definition = instance || this.definitions.get(id);
+            return definition ? {id,
+                path: instance ? instance.path : id,
+                visible: definition.visible,
+                isClone: Boolean(instance)} : null;
+        }).filter(Boolean);
+    }
+
+    /** Snapshot every live member of the selected container, including existing clones and nested instances. */
+    createClone (path) {
+        if (!this.definitions.has(path) && !this.cloneDefinitions.has(path)) return [];
+        const runtime = this.runtime;
+        const sources = runtime.targets.filter(target => !target.isStage &&
+            this.getTargetContainers(target).some(container => container.id === path));
+        if (!sources.length || !runtime.clonesAvailable(sources.length)) return [];
+        const renderer = runtime.renderer;
+        if (renderer) sources.sort((a, b) => a.getLayerOrder() - b.getLayerOrder());
+        const instances = new Map();
+        const clones = [];
+        this.beginUpdate();
+        try {
+            for (const source of sources) {
+                const membership = this.getTargetContainers(source);
+                const root = membership.findIndex(container => container.id === path);
+                const paths = membership.map((container, index) => {
+                    if (index < root) return container.id;
+                    if (!instances.has(container.id)) {
+                        const id = `_container_clone_:${uid()}`;
+                        instances.set(container.id, id);
+                        this.cloneDefinitions.set(id, {path: container.path, visible: container.visible});
+                    }
+                    return instances.get(container.id);
+                });
+                const clone = source.makeClone({containerPaths: paths, startHats: false});
+                if (!clone) {
+                    clones.forEach(target => runtime.disposeTarget(target));
+                    return [];
+                }
+                clones.push(clone);
+                runtime.addTarget(clone);
+            }
+        } catch (error) {
+            clones.forEach(target => runtime.disposeTarget(target));
+            throw error;
+        } finally {
+            this.endUpdate();
+        }
+        // New instances are siblings of the source container, immediately behind it.
+        if (renderer) {
+            const order = Math.min(...runtime.targets.filter(target =>
+                this.getTargetContainers(target).some(container => container.id === path))
+                .map(target => target.getLayerOrder()));
+            this.setOrder(instances.get(path), order === 0 ? -Infinity : order);
+        }
+        // Hats must see every member, its copied state and its final membership.
+        clones.forEach(target => runtime.startHats('control_start_as_clone', null, target));
+        return clones;
+    }
+
     // Rename/reparent an entire folder atomically with its sprite-name changes.
     // Dissolving drops that container but preserves nested container definitions.
     move (source, destination, dissolve = false) {
         const next = new Map();
+        const renamedPaths = new Map();
         for (const [path, value] of this.definitions) {
             if (!within(path, source)) next.set(path, value);
         }
@@ -102,23 +185,47 @@ class SpriteContainers {
             if (!within(path, source) || (dissolve && path === source)) continue;
             const suffix = path.slice(source.length);
             const renamed = destination ? destination + suffix : suffix.slice(2);
-            if (renamed && !next.has(renamed)) next.set(renamed, value);
+            if (renamed) {
+                if (!next.has(renamed)) next.set(renamed, value);
+                renamedPaths.set(path, renamed);
+            }
         }
         this.definitions = next;
+        const blocks = new Set(this.runtime.targets.map(target => target.blocks));
+        for (const blockContainer of blocks) {
+            blockContainer.updateContainerReferences(renamedPaths);
+        }
+        for (const target of this.runtime.targets) {
+            if (target._containerClonePaths) {
+                target._containerClonePaths = target._containerClonePaths
+                    .filter(path => !dissolve || path !== source)
+                    .map(path => renamedPaths.get(path) || path);
+            }
+        }
+        for (const value of this.cloneDefinitions.values()) {
+            if (within(value.path, source) && !(dissolve && value.path === source)) {
+                const suffix = value.path.slice(source.length);
+                value.path = destination ? destination + suffix : suffix.slice(2);
+            }
+        }
     }
 
     sync (extraTarget) {
-        if (this.depth || this.syncing || (!this.definitions.size && !this.active)) return;
-        this.active = this.definitions.size > 0;
+        if (this.depth || this.syncing ||
+            (!this.definitions.size && !this.cloneDefinitions.size && !this.active)) return;
+        this.active = this.definitions.size > 0 || this.cloneDefinitions.size > 0;
         this.syncing = true;
         try {
             const targets = this.runtime.targets.slice();
             if (extraTarget && !targets.includes(extraTarget)) targets.push(extraTarget);
             const memberships = [];
+            const used = new Set();
             for (const target of targets) {
                 if (target.isStage || !target.getDrawableIDs) continue;
-                const containers = ancestors(target.getName()).filter(path => this.definitions.has(path));
-                const visible = containers.every(path => this.definitions.get(path).visible);
+                const definitions = this.getTargetContainers(target);
+                const containers = definitions.map(container => container.id);
+                containers.forEach(id => used.add(id));
+                const visible = definitions.every(container => container.visible);
                 if (target._containerVisible !== visible) {
                     target._containerVisible = visible;
                     target.updateContainerVisibility();
@@ -127,6 +234,9 @@ class SpriteContainers {
                 const bubble = target.getCustomState('Scratch.looks');
                 if (bubble && bubble.drawableId !== null) drawables.push(bubble.drawableId);
                 memberships.push({containers, drawables});
+            }
+            for (const id of this.cloneDefinitions.keys()) {
+                if (!used.has(id)) this.cloneDefinitions.delete(id);
             }
             const renderer = this.runtime.renderer;
             if (renderer && renderer.setDrawableContainerPaths) {

@@ -106,6 +106,7 @@ class RenderedTarget extends Target {
          */
         this.visible = true;
         this._containerVisible = true;
+        this._containerClonePaths = null;
 
         /**
          * Size of rendered target as a percent of costume size.
@@ -179,15 +180,16 @@ class RenderedTarget extends Target {
     /**
      * Create a drawable with the this.renderer.
      * @param {boolean} layerGroup The layer group this drawable should be added to
+     * @param {boolean} startHats Whether to start clone hats immediately.
      */
-    initDrawable (layerGroup) {
+    initDrawable (layerGroup, startHats = true) {
         if (this.renderer) {
             if (this.componentController) this.componentController.init();
             else this.drawableID = this.renderer.createDrawable(layerGroup);
         }
         this.runtime.spriteContainers.sync(this);
         // If we're a clone, start the hats.
-        if (!this.isOriginal) {
+        if (!this.isOriginal && startHats) {
             this.runtime.startHats(
                 'control_start_as_clone', null, this
             );
@@ -1066,14 +1068,17 @@ class RenderedTarget extends Target {
     /**
      * Make a clone, copying any run-time properties.
      * If we've hit the global clone limit, returns null.
+     * @param {object} options Optional container membership and deferred hat startup.
      * @return {RenderedTarget} New clone.
      */
-    makeClone () {
+    makeClone (options = {}) {
         if (!this.runtime.clonesAvailable() || this.isStage) {
             return null; // Hit max clone limit, or this is the stage.
         }
         this.runtime.changeCloneCounter(1);
         const newClone = this.sprite.createClone();
+        const paths = options.containerPaths || this._containerClonePaths;
+        newClone._containerClonePaths = paths ? paths.slice() : null;
         // Copy all properties.
         newClone.x = this.x;
         newClone.y = this.y;
@@ -1093,7 +1098,7 @@ class RenderedTarget extends Target {
             newClone.component = ComponentModel.copy(this.component);
             newClone.componentError = this.componentError;
         }
-        newClone.initDrawable(StageLayering.SPRITE_LAYER);
+        newClone.initDrawable(StageLayering.SPRITE_LAYER, options.startHats !== false);
         newClone.updateAllDrawableProperties();
         return newClone;
     }

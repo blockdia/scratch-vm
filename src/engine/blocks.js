@@ -3,6 +3,7 @@ const mutationAdapter = require('./mutation-adapter');
 const xmlEscape = require('../util/xml-escape');
 const MonitorRecord = require('./monitor-record');
 const Clone = require('../util/clone');
+const CloneOption = require('../util/container-clone-option');
 const BlocksExecuteCache = require('./blocks-execute-cache');
 const BlocksRuntimeCache = require('./blocks-runtime-cache');
 const log = require('../util/log');
@@ -1146,6 +1147,17 @@ class Blocks {
         this.resetCache();
     }
 
+    // Apply a folder rename simultaneously so one replacement cannot cascade into another.
+    updateContainerReferences (renamedPaths) {
+        for (const block of Object.values(this._blocks)) {
+            if (block.opcode !== 'control_create_clone_of_menu') continue;
+            const field = block.fields.CLONE_OPTION;
+            const path = field && CloneOption.decode(field.value);
+            if (renamedPaths.has(path)) field.value = CloneOption.encode(renamedPaths.get(path));
+        }
+        this.resetCache();
+    }
+
     /**
      * Update sensing_of blocks after a variable gets renamed.
      * @param {string} oldName The old name of the variable that was renamed.
@@ -1237,6 +1249,9 @@ class Blocks {
         for (let i = 0; i < spriteMenuNames.length; i++) {
             const menuName = spriteMenuNames[i];
             if (Object.prototype.hasOwnProperty.call(block.fields, menuName)) {
+                if (menuName === 'CLONE_OPTION' &&
+                    (block.fields[menuName].value === CloneOption.SELF ||
+                    CloneOption.decode(block.fields[menuName].value) !== null)) continue;
                 return block.fields[menuName];
             }
         }
