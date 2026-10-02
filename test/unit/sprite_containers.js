@@ -224,9 +224,16 @@ test('container clone selections follow folder renames without changing sprite o
         ['inner', 'control_create_clone_of_menu', CloneOption.encode('A//N')],
         ['sprite', 'control_create_clone_of_menu', 'A//N//one'],
         ['text', 'text', CloneOption.encode('A')]
-    ]) blocks.createBlock({id, opcode, inputs: {},
-        fields: opcode === 'text' ? {TEXT: {name: 'TEXT', value}} : {CLONE_OPTION: {name: 'CLONE_OPTION', value}},
-        next: null, parent: null, topLevel: true, shadow: true});
+    ]) {
+        blocks.createBlock({id,
+            opcode,
+            inputs: {},
+            fields: opcode === 'text' ? {TEXT: {name: 'TEXT', value}} : {CLONE_OPTION: {name: 'CLONE_OPTION', value}},
+            next: null,
+            parent: null,
+            topLevel: true,
+            shadow: true});
+    }
     const containers = vm.runtime.spriteContainers;
     t.same(containers.getCloneMenu(), [['A', CloneOption.encode('A')], ['A//N', CloneOption.encode('A//N')]]);
     containers.beginUpdate();
