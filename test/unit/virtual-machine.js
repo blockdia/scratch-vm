@@ -617,6 +617,31 @@ test('drag IO redirect', t => {
     t.end();
 });
 
+test('release a deleted drag target without redirecting subsequent sprite edits', t => {
+    const vm = new VirtualMachine();
+    const sprite = new Sprite(null, vm.runtime);
+    sprite.name = 'Sprite';
+    const original = sprite.createClone();
+    vm.runtime.addTarget(original);
+    vm.editingTarget = original;
+    const clone = original.makeClone();
+    vm.runtime.addTarget(clone);
+    vm.startDrag(clone.id);
+    vm.runtime.disposeTarget(clone);
+
+    vm.stopDrag('unrelated');
+    t.equal(vm._dragTarget, clone, 'unrelated cancellation keeps the active drag');
+    vm.stopDrag(clone.id);
+    t.equal(vm._dragTarget, null, 'removed target reference is released');
+    t.equal(clone.dragging, false, 'removed target exits its drag state');
+    t.equal(vm.editingTarget, original, 'selection stays on the surviving original');
+    vm.postSpriteInfo({x: 42});
+    t.equal(original.x, 42, 'subsequent property edits reach the selected sprite');
+    t.equal(clone.x, 0, 'subsequent property edits do not reach the deleted clone');
+    vm.quit();
+    t.end();
+});
+
 test('select original after dragging clone', t => {
     const vm = new VirtualMachine();
     let newEditingTargetId = null;

@@ -1962,9 +1962,15 @@ class VirtualMachine extends EventEmitter {
      */
     stopDrag (targetId) {
         const target = this.runtime.getTargetById(targetId);
-        if (target) {
+        // A clone may delete itself while being dragged. Release its retained
+        // reference without selecting a target that is no longer in the project.
+        const dragTarget = target || (this._dragTarget && this._dragTarget.id === targetId ?
+            this._dragTarget : null);
+        if (dragTarget) {
             this._dragTarget = null;
-            target.stopDrag();
+            dragTarget.stopDrag();
+        }
+        if (target) {
             this.setEditingTarget(target.sprite && target.sprite.clones[0] ?
                 target.sprite.clones[0].id : target.id);
         }
