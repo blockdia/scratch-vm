@@ -267,18 +267,22 @@ class SpriteContainers {
         for (const blockContainer of blocks) {
             blockContainer.updateContainerReferences(renamedPaths);
         }
-        for (const target of this.runtime.targets) {
-            if (target._containerClonePaths) {
-                target._containerClonePaths = target._containerClonePaths
-                    .filter(path => !dissolve || path !== source)
-                    .map(path => renamedPaths.get(path) || path);
-            }
-        }
         for (const value of this.cloneDefinitions.values()) {
             if (within(value.path, source) && !(dissolve && value.path === source)) {
                 const suffix = value.path.slice(source.length);
                 value.path = destination ? destination + suffix : suffix.slice(2);
             }
+        }
+        for (const target of this.runtime.targets) {
+            const paths = target._containerClonePaths;
+            if (!paths) continue;
+            const rootIndex = paths.findIndex(path => this.cloneDefinitions.has(path));
+            if (rootIndex < 0) continue;
+            // Runtime instances keep their own subtree. Their external ancestors
+            // must follow the moved folder, including newly entered or left parents.
+            const root = this.cloneDefinitions.get(paths[rootIndex]);
+            target._containerClonePaths = ancestors(root.path).filter(path => this.definitions.has(path))
+                .concat(paths.slice(rootIndex));
         }
     }
 

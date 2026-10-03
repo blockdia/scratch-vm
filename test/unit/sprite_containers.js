@@ -329,6 +329,54 @@ test('runtime instance edits do not dirty the project and parent moves preserve 
     t.end();
 });
 
+test('reparenting folders rebuilds external clone ancestors without replacing runtime instances', t => {
+    const {vm, renderer, add} = setup();
+    const original = add('A//N//one');
+    add('C//other');
+    add('D//other');
+    const containers = vm.runtime.spriteContainers;
+    for (const path of ['A', 'A//N', 'C', 'D']) vm.setSpriteFolderContainer(path, true);
+    vm.setSpriteContainerTransform('A', {x: 10});
+    vm.setSpriteContainerTransform('C', {x: 100});
+    vm.setSpriteContainerTransform('D', {x: -30});
+    vm.setSpriteContainerVisible('C', false);
+    vm.setSpriteContainerEffects('C', {ghost: 50});
+    const [clone] = containers.createClone('A//N');
+    const instance = containers.getContainingContainer(clone).id;
+    vm.setSpriteContainerTransform(instance, {x: 5});
+    const child = clone.makeClone();
+    vm.runtime.addTarget(child);
+    const [outerCopy] = containers.createClone('A');
+    const copiedPaths = outerCopy._containerClonePaths.slice();
+    const move = (source, destination) => {
+        containers.beginUpdate();
+        containers.move(source, destination);
+        vm.renameSprite(original.id, `${destination}//N//one`);
+        containers.endUpdate();
+    };
+    move('A', 'C//A');
+    for (const member of [clone, child]) {
+        t.same(member._containerClonePaths, ['C', 'C//A', instance]);
+        t.same(member.getWorldPosition(), [115, 0], 'new parent transform is inherited');
+        t.notOk(member.isEffectivelyVisible(), 'new parent visibility is inherited');
+        t.same(containers.getTargetContainers(member)[0].effects, {ghost: 50});
+        t.same(renderer.memberships.find(entry => entry.drawables.includes(member.drawableID)).containers,
+            member._containerClonePaths, 'renderer receives the complete ancestry');
+    }
+    t.same(outerCopy._containerClonePaths, ['C', ...copiedPaths], 'copied nested identities survive the move');
+    move('C//A', 'D//A');
+    t.same(clone._containerClonePaths, ['D', 'D//A', instance], 'old external ancestors are removed');
+    t.same(clone.getWorldPosition(), [-15, 0]);
+    t.ok(clone.isEffectivelyVisible(), 'the old hidden parent no longer constrains the instance');
+    t.same(outerCopy._containerClonePaths, ['D', ...copiedPaths]);
+    move('D//A', 'A');
+    t.same(clone._containerClonePaths, ['A', instance], 'moving back to the root removes the external parent');
+    t.same(clone.getWorldPosition(), [15, 0]);
+    t.equal(containers.get(instance).transform.x, 5, 'instance state stays independent');
+    vm.quit();
+    t.end();
+});
+
 test('a refused member rolls back the partially constructed instance without starting hats', t => {
     const {vm, add} = setup();
     const first = add('A//one');
