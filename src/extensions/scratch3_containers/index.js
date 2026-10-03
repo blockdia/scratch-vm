@@ -173,7 +173,9 @@ class Containers {
     setEffect (args, util) {
         const container = this._container(args.CONTAINER, util);
         if (container && Effects.names.includes(args.EFFECT)) {
-            this.runtime.spriteContainers.setEffects(container.path, {[args.EFFECT]: Cast.toNumber(args.VALUE)});
+            // Clamp bounded effects before the container API rejects non-finite values.
+            const value = this.runtime.ext_scratch3_looks.clampEffect(args.EFFECT, Cast.toNumber(args.VALUE));
+            this.runtime.spriteContainers.setEffects(container.path, {[args.EFFECT]: value});
         }
     }
 

@@ -45,6 +45,47 @@ test('effect blocks address source and runtime containers without changing membe
     t.end();
 });
 
+test('bounded container effects match sprite blocks for infinite and invalid numeric inputs', t => {
+    const {vm, add, extension, renderer} = setup();
+    const target = add('A//one');
+    vm.setSpriteFolderContainer('A', true);
+    const util = {target};
+    const sprite = {
+        effects: {},
+        setEffect (name, value) {
+            this.effects[name] = value;
+        }
+    };
+    const values = [Infinity, -Infinity, 'Infinity', '-Infinity', NaN, 'not a number', 150, -150, 0];
+    for (const EFFECT of ['ghost', 'brightness']) {
+        for (const method of ['setEffect', 'changeEffect']) {
+            for (const VALUE of values) {
+                const args = {CONTAINER: ContainerOption.SELF, EFFECT, VALUE, CHANGE: VALUE};
+                extension.setEffect({...args, VALUE: 40}, util);
+                sprite.effects[EFFECT] = 40;
+                vm.runtime.ext_scratch3_looks[method](args, {target: sprite});
+                extension[method](args, util);
+                const expected = sprite.effects[EFFECT];
+                t.equal(extension.effect(args, util), expected, `${method} ${EFFECT} ${VALUE}`);
+                const appearance = renderer.containerAppearances.get('A');
+                t.equal((appearance.effects || {})[EFFECT] || 0, expected, 'renderer receives the clamped value');
+                t.equal(target.effects[EFFECT], 0, 'member effect is unchanged');
+            }
+        }
+    }
+    for (const EFFECT of ['color', 'fisheye', 'whirl', 'pixelate', 'mosaic']) {
+        const args = {CONTAINER: 'A', EFFECT, VALUE: 40};
+        extension.setEffect(args, util);
+        for (const VALUE of [Infinity, -Infinity]) {
+            extension.setEffect({...args, VALUE}, util);
+            extension.changeEffect({...args, VALUE}, util);
+            t.equal(extension.effect(args, util), 40, 'unbounded non-finite effects preserve the old value');
+        }
+    }
+    vm.quit();
+    t.end();
+});
+
 test('localized container menus preserve the GUI message dictionary', async t => {
     const {vm, add, extension} = setup();
     const previousLocale = formatMessage.setup();
