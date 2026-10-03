@@ -22,7 +22,7 @@ class Containers {
         return {
             id: 'containers',
             name: text('name', 'Containers'),
-            color1: '#537FBA',
+            color1: '#A9744F',
             blocks: [
                 {opcode: 'property',
                     blockType: BlockType.REPORTER,

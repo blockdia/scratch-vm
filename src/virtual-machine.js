@@ -1588,7 +1588,10 @@ class VirtualMachine extends EventEmitter {
      *     updated for a new locale (or empty if locale hasn't changed.)
      */
     setLocale (locale, messages) {
-        if (locale !== formatMessage.setup().locale) {
+        // A different message table for the current locale (for example the GUI adding
+        // renderer-owned translations after the first call) must also be applied.
+        if (locale !== formatMessage.setup().locale || (messages && messages !== this._localeMessages)) {
+            this._localeMessages = messages;
             // format-message replaces strings with cached objects. Keep the GUI's shared
             // messages intact so react-intl can still translate menu labels using them.
             formatMessage.setup({locale: locale, translations: {[locale]: {...messages}}});

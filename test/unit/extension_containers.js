@@ -63,6 +63,23 @@ test('localized container menus preserve the GUI message dictionary', async t =>
     }
 });
 
+test('a replacement message table for the current locale is applied', async t => {
+    const {vm, extension} = setup();
+    const previousLocale = formatMessage.setup();
+    try {
+        await vm.setLocale('zh-cn', {'containers.color': '颜色'});
+        const effects = () => extension.getInfo().menus.effects.items;
+        t.equal(effects()[0].text, '颜色');
+        await vm.setLocale('zh-cn', {'containers.color': '色彩'});
+        t.equal(effects()[0].text, '色彩');
+        await vm.setLocale('zh-cn');
+        t.equal(effects()[0].text, '色彩', 'omitting messages keeps the current table');
+    } finally {
+        formatMessage.setup(previousLocale);
+        vm.quit();
+    }
+});
+
 test('menus replace the current name with a relative choice and rename only named references', t => {
     const {vm, add, extension, containers} = setup();
     t.same(extension.getContainers().map(item => item.value), ['']);
