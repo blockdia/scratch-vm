@@ -3,6 +3,7 @@ const ArgumentType = require('../../extension-support/argument-type');
 const Cast = require('../../util/cast');
 const ContainerOption = require('../../util/container-option');
 const Transform = require('../../util/container-transform');
+const Effects = require('../../util/container-effects');
 const formatMessage = require('format-message');
 
 const text = (id, defaultMessage) => formatMessage({id: `containers.${id}`, default: defaultMessage});
@@ -50,6 +51,28 @@ class Containers {
                     disableMonitor: true,
                     arguments: {PROPERTY: property, TARGET: {type: ArgumentType.STRING, menu: 'sprites'}}},
                 '---',
+                {opcode: 'effect',
+                    blockType: BlockType.REPORTER,
+                    disableMonitor: true,
+                    text: text('effect', '[EFFECT] effect of container [CONTAINER]'),
+                    arguments: {CONTAINER: container, EFFECT: {type: ArgumentType.STRING, menu: 'effects'}}},
+                {opcode: 'setEffect',
+                    blockType: BlockType.COMMAND,
+                    text: text('setEffect', 'set [EFFECT] effect of container [CONTAINER] to [VALUE]'),
+                    arguments: {CONTAINER: container,
+                        EFFECT: {type: ArgumentType.STRING, menu: 'effects'},
+                        VALUE: number(0)}},
+                {opcode: 'changeEffect',
+                    blockType: BlockType.COMMAND,
+                    text: text('changeEffect', 'change [EFFECT] effect of container [CONTAINER] by [VALUE]'),
+                    arguments: {CONTAINER: container,
+                        EFFECT: {type: ArgumentType.STRING, menu: 'effects'},
+                        VALUE: number(25)}},
+                {opcode: 'clearEffects',
+                    blockType: BlockType.COMMAND,
+                    text: text('clearEffects', 'clear graphic effects of container [CONTAINER]'),
+                    arguments: {CONTAINER: container}},
+                '---',
                 {opcode: 'show',
                     blockType: BlockType.COMMAND,
                     text: text('show', 'show container [CONTAINER]'),
@@ -85,6 +108,7 @@ class Containers {
                     text: text('deleteClone', 'delete this container clone')}
             ],
             menus: {
+                effects: {acceptReporters: false, items: Effects.names.map(name => item(name, name))},
                 containers: {acceptReporters: true, items: 'getContainers'},
                 sprites: {acceptReporters: true, items: 'getSprites'},
                 properties: {acceptReporters: false,
@@ -139,6 +163,27 @@ class Containers {
 
     _setTransform (container, patch) {
         if (container) this.runtime.spriteContainers.setTransform(container.path, patch);
+    }
+
+    effect (args, util) {
+        const container = this._container(args.CONTAINER, util);
+        return container && Effects.names.includes(args.EFFECT) ? (container.effects || {})[args.EFFECT] || 0 : 0;
+    }
+
+    setEffect (args, util) {
+        const container = this._container(args.CONTAINER, util);
+        if (container && Effects.names.includes(args.EFFECT)) {
+            this.runtime.spriteContainers.setEffects(container.path, {[args.EFFECT]: Cast.toNumber(args.VALUE)});
+        }
+    }
+
+    changeEffect (args, util) {
+        this.setEffect({...args, VALUE: this.effect(args, util) + Cast.toNumber(args.VALUE)}, util);
+    }
+
+    clearEffects (args, util) {
+        const container = this._container(args.CONTAINER, util);
+        if (container) this.runtime.spriteContainers.setEffects(container.path, null);
     }
 
     property (args, util) {

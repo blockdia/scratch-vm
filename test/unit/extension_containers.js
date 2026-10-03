@@ -25,6 +25,26 @@ const setup = () => {
     return {vm, renderer, add, extension: new Containers(vm.runtime), containers: vm.runtime.spriteContainers};
 };
 
+test('effect blocks address source and runtime containers without changing member effects', t => {
+    const {vm, add, extension, containers} = setup();
+    const target = add('A//one');
+    vm.setSpriteFolderContainer('A', true);
+    const util = {target};
+    const args = {CONTAINER: ContainerOption.SELF, EFFECT: 'ghost', VALUE: 40};
+    extension.setEffect(args, util);
+    extension.changeEffect({...args, VALUE: 15}, util);
+    t.equal(extension.effect(args, util), 55);
+    t.equal(target.effects.ghost, 0);
+    const clone = containers.createClone('A')[0];
+    extension.clearEffects(args, {target: clone});
+    t.equal(extension.effect(args, {target: clone}), 0);
+    t.equal(extension.effect(args, util), 55);
+    extension.clearEffects(args, util);
+    t.notOk(containers.get('A').effects);
+    vm.quit();
+    t.end();
+});
+
 test('localized container menus preserve the GUI message dictionary', async t => {
     const {vm, add, extension} = setup();
     const previousLocale = formatMessage.setup();

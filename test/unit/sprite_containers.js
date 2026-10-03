@@ -31,6 +31,46 @@ const setup = () => {
     return {vm, renderer, add, extension: new ContainersExtension(vm.runtime)};
 };
 
+test('container effects and clips validate, serialize, clone independently and avoid membership rebuilds', t => {
+    const {vm, renderer, add} = setup();
+    const target = add('A//N//one');
+    vm.setSpriteFolderContainer('A', true);
+    vm.setSpriteFolderContainer('A//N', true);
+    vm.setSpriteContainerTransform('A', {x: 25, size: 200});
+    const memberships = renderer.memberships;
+    t.ok(vm.setSpriteContainerEffects('A', {ghost: 150, whirl: 60}));
+    t.equal(renderer.memberships, memberships, 'animated effects do not rebuild membership or sorting');
+    t.same(renderer.containerAppearances.get('A').matrix, [2, 0, 0, 2, 25, 0]);
+    t.same(target.effects.ghost, 0, 'member effects are untouched');
+    t.notOk(vm.setSpriteContainerEffects('A', {unknown: 1}));
+    t.notOk(vm.setSpriteContainerEffects('A', {ghost: Infinity}));
+    t.notOk(vm.setSpriteContainerClip('A', {left: 2, right: 1, bottom: 0, top: 1}));
+    const clip = {left: -20, right: 20, bottom: -10, top: 10};
+    t.ok(vm.setSpriteContainerClip('A', clip));
+    clip.left = -999;
+    const saved = vm.runtime.spriteContainers.serialize();
+    t.same(saved[0].effects, {ghost: 100, whirl: 60});
+    t.equal(saved[0].clip.left, -20, 'API inputs are copied');
+    const clone = vm.runtime.spriteContainers.createClone('A')[0];
+    const clonePath = vm.runtime.spriteContainers.getTargetContainers(clone)[0].id;
+    vm.setSpriteContainerEffects(clonePath, {ghost: 25});
+    vm.setSpriteContainerClip(clonePath, null);
+    t.same(vm.runtime.spriteContainers.get('A').effects, {ghost: 100, whirl: 60});
+    t.ok(vm.runtime.spriteContainers.get('A').clip);
+    t.same(vm.runtime.spriteContainers.serialize(), saved, 'runtime appearance never enters project metadata');
+    vm.runtime.spriteContainers.load(saved);
+    vm.runtime.spriteContainers.sync();
+    t.same(vm.runtime.spriteContainers.serialize(), saved);
+    vm.setSpriteContainerEffects('A', null);
+    vm.setSpriteContainerClip('A', null);
+    t.notOk(vm.runtime.spriteContainers.get('A').effects);
+    t.notOk(vm.runtime.spriteContainers.get('A').clip);
+    vm.clear();
+    t.equal(renderer.containerAppearances.size, 0, 'project clear removes renderer state');
+    vm.quit();
+    t.end();
+});
+
 test('container visibility composes without overwriting sprite or child container visibility', t => {
     const {vm, renderer, add} = setup();
     const outer = add('A//plain//one');

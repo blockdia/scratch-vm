@@ -1409,6 +1409,18 @@ class VirtualMachine extends EventEmitter {
         return changed;
     }
 
+    setSpriteContainerEffects (path, effects) {
+        const changed = this.runtime.spriteContainers.setEffects(path, effects);
+        if (changed) this._containerEdited(path);
+        return changed;
+    }
+
+    setSpriteContainerClip (path, clip) {
+        const changed = this.runtime.spriteContainers.setClip(path, clip);
+        if (changed) this._containerEdited(path);
+        return changed;
+    }
+
     _containerEdited (path) {
         this.emitContainersUpdate();
         if (!this.runtime.spriteContainers.cloneDefinitions.has(path)) this.runtime.emitProjectChanged();

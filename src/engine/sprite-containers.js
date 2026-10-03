@@ -1,6 +1,7 @@
 const StageLayering = require('./stage-layering');
 const uid = require('../util/uid');
 const Transform = require('../util/container-transform');
+const Effects = require('../util/container-effects');
 
 const ancestors = name => {
     const parts = String(name).split('//');
@@ -25,6 +26,8 @@ class SpriteContainers {
         const value = this.definitions.get(path) || this.cloneDefinitions.get(path);
         return value ? {path,
             visible: value.visible,
+            ...(value.effects ? {effects: {...value.effects}} : {}),
+            ...(value.clip ? {clip: {...value.clip}} : {}),
             ...(value.transform ? {transform: {...value.transform}} : {})} : null;
     }
 
@@ -43,6 +46,8 @@ class SpriteContainers {
                 if (!entry || typeof entry.path !== 'string' || !entry.path ||
                     !ancestors(`${entry.path}//_`).includes(entry.path)) continue;
                 this.definitions.set(entry.path, {visible: entry.visible !== false,
+                    effects: Effects.normalize(entry.effects),
+                    clip: Effects.copyClip(entry.clip),
                     transform: Transform.normalize(entry.transform)});
             }
         }
@@ -83,6 +88,41 @@ class SpriteContainers {
         container.transform = transform;
         this.sync();
         return true;
+    }
+
+    setEffects (path, patch) {
+        const container = this.definitions.get(path) || this.cloneDefinitions.get(path);
+        if (!container || (patch !== null && (!patch || typeof patch !== 'object' ||
+            Object.keys(patch).some(key => !Effects.names.includes(key) || !Number.isFinite(patch[key]))))) {
+            return false;
+        }
+        this._requireAppearanceRenderer();
+        container.effects = patch === null ? null : Effects.normalize({...container.effects, ...patch});
+        this._updateAppearance(path, container);
+        return true;
+    }
+
+    setClip (path, clip) {
+        const container = this.definitions.get(path) || this.cloneDefinitions.get(path);
+        if (!container || (clip !== null && !Effects.validClip(clip))) return false;
+        this._requireAppearanceRenderer();
+        container.clip = Effects.copyClip(clip);
+        this._updateAppearance(path, container);
+        return true;
+    }
+
+    _requireAppearanceRenderer () {
+        const renderer = this.runtime.renderer;
+        if (renderer && !renderer.updateDrawableContainerAppearance) {
+            throw new Error('Container effects require a renderer with container compositing support');
+        }
+    }
+
+    _updateAppearance (path, container) {
+        const renderer = this.runtime.renderer;
+        if (renderer) renderer.updateDrawableContainerAppearance(path, container.effects, container.clip);
+        this.runtime.requestRedraw();
+        this.runtime.requestContainersUpdate();
     }
 
     setOrder (path, order, relative = false) {
@@ -129,6 +169,8 @@ class SpriteContainers {
             return definition ? {id,
                 path: instance ? instance.path : id,
                 visible: definition.visible,
+                ...(definition.effects ? {effects: {...definition.effects}} : {}),
+                ...(definition.clip ? {clip: {...definition.clip}} : {}),
                 ...(definition.transform ? {transform: {...definition.transform}} : {}),
                 isClone: Boolean(instance)} : null;
         }).filter(Boolean);
@@ -157,6 +199,8 @@ class SpriteContainers {
                         instances.set(container.id, id);
                         this.cloneDefinitions.set(id, {path: container.path,
                             visible: container.visible,
+                            effects: container.effects ? {...container.effects} : null,
+                            clip: container.clip ? {...container.clip} : null,
                             transform: container.transform ? {...container.transform} : null});
                     }
                     return instances.get(container.id);
@@ -247,6 +291,7 @@ class SpriteContainers {
             const targets = this.runtime.targets.slice();
             if (extraTarget && !targets.includes(extraTarget)) targets.push(extraTarget);
             const memberships = [];
+            const appearances = new Map();
             const used = new Set();
             for (const target of targets) {
                 if (target.isStage || !target.getDrawableIDs) continue;
@@ -259,8 +304,14 @@ class SpriteContainers {
                     target.updateContainerVisibility();
                 }
                 const drawables = target.getDrawableIDs();
-                const matrix = definitions.reduce((parent, container) =>
-                    Transform.multiply(parent, Transform.matrix(container.transform)), Transform.identity);
+                const matrix = definitions.reduce((parent, container) => {
+                    const world = Transform.multiply(parent, Transform.matrix(container.transform));
+                    appearances.set(container.id, {id: container.id,
+                        matrix: world,
+                        effects: container.effects,
+                        clip: container.clip});
+                    return world;
+                }, Transform.identity);
                 const changed = !target._containerTransform || matrix.some((n, i) =>
                     n !== target._containerTransform[i]);
                 target._containerTransform = matrix;
@@ -278,6 +329,11 @@ class SpriteContainers {
                 if (!used.has(id)) this.cloneDefinitions.delete(id);
             }
             const renderer = this.runtime.renderer;
+            if (renderer && renderer.setDrawableContainerAppearances) {
+                renderer.setDrawableContainerAppearances(Array.from(appearances.values()));
+            } else if (Array.from(appearances.values()).some(value => value.effects || value.clip)) {
+                this._requireAppearanceRenderer();
+            }
             if (renderer && renderer.setDrawableContainerPaths) {
                 renderer.setDrawableContainerPaths(StageLayering.SPRITE_LAYER, memberships);
                 this.refreshExecutableOrder();
