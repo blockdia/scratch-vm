@@ -1,5 +1,6 @@
 const BlockType = require('../../extension-support/block-type');
 const ArgumentType = require('../../extension-support/argument-type');
+const TargetType = require('../../extension-support/target-type');
 const Cast = require('../../util/cast');
 const ContainerOption = require('../../util/container-option');
 const Transform = require('../../util/container-transform');
@@ -50,6 +51,11 @@ class Containers {
                     text: text('worldProperty', '[PROPERTY] of [TARGET] on stage'),
                     disableMonitor: true,
                     arguments: {PROPERTY: property, TARGET: {type: ArgumentType.STRING, menu: 'sprites'}}},
+                {opcode: 'setWorldProperty',
+                    blockType: BlockType.COMMAND,
+                    text: text('setWorldProperty', 'set [PROPERTY] on stage to [VALUE]'),
+                    filter: [TargetType.SPRITE],
+                    arguments: {PROPERTY: property, VALUE: number(0)}},
                 '---',
                 {opcode: 'effect',
                     blockType: BlockType.REPORTER,
@@ -205,6 +211,23 @@ class Containers {
         case 'direction': return target.getWorldDirection();
         case 'size': return target.getWorldSize();
         default: return 0;
+        }
+    }
+
+    setWorldProperty (args, util) {
+        const target = util.target;
+        const value = Cast.toNumber(args.VALUE);
+        if (target.isStage || !Number.isFinite(value)) return;
+        switch (args.PROPERTY) {
+        case 'x':
+        case 'y': {
+            const position = target.getWorldPosition();
+            position[args.PROPERTY === 'x' ? 0 : 1] = value;
+            target.setXY(...target.worldToLocal(position[0], position[1]));
+            break;
+        }
+        case 'direction': target.setWorldDirection(value); break;
+        case 'size': target.setWorldSize(value); break;
         }
     }
 

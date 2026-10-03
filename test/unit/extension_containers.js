@@ -283,6 +283,107 @@ test('world reporters compose nested transforms, reflections and live clone stat
     t.end();
 });
 
+test('world setters invert nested transforms and preserve other members and world coordinates', t => {
+    const {vm, add, extension, containers, renderer} = setup();
+    renderer.getCurrentSkinSize = () => [100, 100];
+    const target = add('A//B//one');
+    const sibling = add('A//B//two');
+    vm.setSpriteFolderContainer('A', true);
+    vm.setSpriteFolderContainer('A//B', true);
+    vm.setSpriteContainerTransform('A', {x: 100, y: 50, size: 200, direction: 180});
+    vm.setSpriteContainerTransform('A//B', {x: 5, y: 10, size: 50});
+    target.setXY(10, 20);
+    const saved = containers.serialize();
+    const near = (actual, expected) => actual.forEach((value, i) =>
+        t.ok(Math.abs(value - expected[i]) < 1e-8, `${value} is near ${expected[i]}`));
+    const values = sprite => [...sprite.getWorldPosition(), sprite.getWorldDirection(), sprite.getWorldSize()];
+    const siblingBefore = values(sibling);
+    const set = (PROPERTY, VALUE, sprite = target) => extension.setWorldProperty({PROPERTY, VALUE}, {target: sprite});
+    set('x', '170');
+    near(values(target), [170, 30, 180, 100]);
+    near([target.x, target.y], [10, 50]);
+    set('y', -10);
+    near(values(target), [170, -10, 180, 100]);
+    near([target.x, target.y], [50, 50]);
+    set('direction', 450);
+    near([target.direction, target.getWorldDirection()], [0, 90]);
+    vm.setSpriteContainerTransform('A//B', {size: 100});
+    set('size', 180);
+    near([target.size, target.getWorldSize()], [90, 180]);
+    vm.setSpriteContainerTransform('A//B', {size: 50});
+    t.same(containers.serialize(), saved, 'world setters leave container transforms untouched');
+    near(values(sibling), siblingBefore);
+    vm.setSpriteContainerTransform('A', {rotationStyle: 'left-right', direction: -90});
+    set('x', 60);
+    near([target.x, target.y], [30, 50]);
+    for (const rotationStyle of ['all around', 'left-right', "don't rotate"]) {
+        target.setRotationStyle(rotationStyle);
+        set('direction', 30);
+        near([target.direction, target.getWorldDirection()], [-30, 30]);
+    }
+    const clone = containers.createClone('A//B').find(member => member.sprite === target.sprite);
+    containers.setTransform(containers.getContainingContainer(clone).id, {x: 20, size: 200, direction: 127});
+    const original = values(target);
+    for (const [PROPERTY, VALUE] of [['x', 15], ['y', -25], ['direction', -135], ['size', 240]]) {
+        set(PROPERTY, VALUE, clone);
+    }
+    near(values(clone), [15, -25, -135, 240]);
+    near(values(target), original);
+    t.same(renderer._allDrawables[clone.drawableID]._position, [clone.x, clone.y],
+        'position is updated through the renderer');
+    vm.quit();
+    t.end();
+});
+
+test('world setters retain native constraints, numeric casting and self-only palette semantics', t => {
+    const {vm, add, extension, renderer} = setup();
+    renderer.getCurrentSkinSize = () => [100, 100];
+    const target = add('outside');
+    const stage = add('stage');
+    stage.isStage = true;
+    const set = (PROPERTY, VALUE, sprite = target) => extension.setWorldProperty({PROPERTY, VALUE}, {target: sprite});
+    const values = sprite => [sprite.x, sprite.y, sprite.direction, sprite.size];
+    for (const [PROPERTY, VALUE] of [['x', 45], ['y', -20], ['direction', -45], ['size', 200]]) {
+        set(PROPERTY, VALUE);
+        set(PROPERTY, VALUE, stage);
+    }
+    t.same(values(target), [45, -20, -45, 200], 'uncontained sprites use ordinary stage values');
+    t.same(values(stage), [0, 0, 90, 100], 'stage execution is a no-op');
+    const before = values(target);
+    for (const PROPERTY of ['x', 'y', 'direction', 'size']) {
+        for (const VALUE of [Infinity, -Infinity, 'Infinity']) set(PROPERTY, VALUE);
+    }
+    set('__proto__', 50);
+    t.same(values(target), before, 'non-finite inputs and unknown properties are ignored');
+    set('x', 'not a number');
+    t.equal(target.x, 0, 'Scratch numeric casting maps non-numeric strings to zero');
+    target.dragging = true;
+    set('y', 60);
+    t.equal(target.y, -20, 'script movement respects dragging');
+    target.dragging = false;
+    renderer.getFencedPositionOfDrawable = (id, position) => [Math.min(position[0], 100), position[1]];
+    set('x', 200);
+    t.equal(target.x, 100, 'movement uses the existing fencing path');
+    vm.renameSprite(target.id, 'A//one');
+    vm.setSpriteFolderContainer('A', true);
+    vm.setSpriteContainerTransform('A', {size: 200});
+    set('size', 0);
+    t.equal(target.getWorldSize(), 10, 'native minimum size is retained');
+    set('size', 10000);
+    t.equal(target.getWorldSize(), 1080, 'native maximum size is retained');
+    vm.setRuntimeOptions({fencing: false});
+    set('size', 10000);
+    t.equal(target.getWorldSize(), 10000, 'disabling fencing also disables size limits');
+    const block = extension.getInfo().blocks.find(info => info.opcode === 'setWorldProperty');
+    t.same(Object.keys(block.arguments), ['PROPERTY', 'VALUE'], 'the setter has no target selector');
+    t.match(vm.runtime.getBlocksXML(target).find(category => category.id === 'containers').xml,
+        'containers_setWorldProperty', 'the setter is in the sprite palette');
+    t.notMatch(vm.runtime.getBlocksXML(stage).find(category => category.id === 'containers').xml,
+        'containers_setWorldProperty', 'the setter is hidden on the stage');
+    vm.quit();
+    t.end();
+});
+
 test('world target menus and fixed references follow sprites and preserve shared named choices', async t => {
     const {vm, add, extension} = setup();
     t.teardown(() => vm.quit());

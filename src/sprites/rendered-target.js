@@ -273,6 +273,25 @@ class RenderedTarget extends Target {
         return this.size * Math.hypot(matrix[0], matrix[1]);
     }
 
+    // Invert only the linear transform: container translation must not affect a heading.
+    setWorldDirection (direction) {
+        if (!Number.isFinite(direction)) return;
+        const matrix = this._containerTransform || ContainerTransform.identity;
+        const angle = (90 - MathUtil.wrapClamp(direction, -179, 180)) * Math.PI / 180;
+        const x = Math.cos(angle);
+        const y = Math.sin(angle);
+        const det = (matrix[0] * matrix[3]) - (matrix[1] * matrix[2]);
+        const localX = ((matrix[3] * x) - (matrix[2] * y)) / det;
+        const localY = ((matrix[0] * y) - (matrix[1] * x)) / det;
+        this.setDirection(90 - (Math.atan2(localY, localX) * 180 / Math.PI));
+    }
+
+    setWorldSize (size) {
+        if (!Number.isFinite(size)) return;
+        const matrix = this._containerTransform || ContainerTransform.identity;
+        this.setSize(size / Math.hypot(matrix[0], matrix[1]));
+    }
+
     get audioPlayer () {
         /* eslint-disable no-console */
         console.warn('get audioPlayer deprecated, please update to use .sprite.soundBank methods');
