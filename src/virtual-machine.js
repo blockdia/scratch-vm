@@ -117,6 +117,9 @@ class VirtualMachine extends EventEmitter {
         this.runtime.on(Runtime.TARGETS_UPDATE, emitProjectChanged => {
             this.emitTargetsUpdate(emitProjectChanged);
         });
+        this.runtime.on(Runtime.CONTAINERS_UPDATE, () => {
+            this.emit('containersUpdate', this.runtime.spriteContainers.serialize());
+        });
         this.runtime.on(Runtime.MONITORS_UPDATE, monitorList => {
             this.emit(Runtime.MONITORS_UPDATE, monitorList);
         });
@@ -378,6 +381,7 @@ class VirtualMachine extends EventEmitter {
     clear () {
         this.runtime.dispose();
         this.editingTarget = null;
+        this.emitContainersUpdate();
         this.emitTargetsUpdate(false /* Don't emit project change */);
     }
 
@@ -846,6 +850,7 @@ class VirtualMachine extends EventEmitter {
 
             // Update the VM user's knowledge of targets and blocks on the workspace.
             this.runtime.setEditingTarget(this.editingTarget);
+            this.emitContainersUpdate();
             this.emitTargetsUpdate(false /* Don't emit project change */);
             this.emitWorkspaceUpdate();
             this.runtime.ioDevices.cloud.setStage(this.runtime.getTargetForStage());
@@ -1382,25 +1387,35 @@ class VirtualMachine extends EventEmitter {
             if (enabled && !this.extensionManager.isExtensionLoaded('containers')) {
                 this.extensionManager.loadExtensionIdSync('containers');
             }
-            this.emitTargetsUpdate();
+            this.emitContainersUpdate();
+            this.runtime.emitProjectChanged();
         }
     }
 
     setSpriteContainerVisible (path, visible) {
         const containers = this.runtime.spriteContainers;
-        if (containers.setVisible(path, visible)) this.emitTargetsUpdate(!containers.cloneDefinitions.has(path));
+        if (containers.setVisible(path, visible)) this._containerEdited(path);
     }
 
     setSpriteContainerOrder (path, order, relative = false) {
         const containers = this.runtime.spriteContainers;
-        if (containers.setOrder(path, order, relative)) this.emitTargetsUpdate(!containers.cloneDefinitions.has(path));
+        if (containers.setOrder(path, order, relative)) this._containerEdited(path);
     }
 
     setSpriteContainerTransform (path, transform) {
         const containers = this.runtime.spriteContainers;
         const changed = containers.setTransform(path, transform);
-        if (changed) this.emitTargetsUpdate(!containers.cloneDefinitions.has(path));
+        if (changed) this._containerEdited(path);
         return changed;
+    }
+
+    _containerEdited (path) {
+        this.emitContainersUpdate();
+        if (!this.runtime.spriteContainers.cloneDefinitions.has(path)) this.runtime.emitProjectChanged();
+    }
+
+    emitContainersUpdate () {
+        this.runtime.emitContainersUpdate();
     }
 
     /**

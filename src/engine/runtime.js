@@ -318,6 +318,7 @@ class Runtime extends EventEmitter {
          * @type {boolean}
          */
         this._refreshTargets = false;
+        this._refreshContainers = false;
 
         /**
          * Map to look up all monitor block information by opcode.
@@ -773,6 +774,10 @@ class Runtime extends EventEmitter {
      */
     static get TARGETS_UPDATE () {
         return 'TARGETS_UPDATE';
+    }
+
+    static get CONTAINERS_UPDATE () {
+        return 'CONTAINERS_UPDATE';
     }
 
     /**
@@ -2670,6 +2675,7 @@ class Runtime extends EventEmitter {
             this.emit(Runtime.TARGETS_UPDATE, false /* Don't emit project changed */);
             this._refreshTargets = false;
         }
+        if (this._refreshContainers) this.emitContainersUpdate();
 
         if (this._monitorState.dirty) {
             this.emit(Runtime.MONITORS_UPDATE, this._monitorState.shallowClone());
@@ -3451,6 +3457,16 @@ class Runtime extends EventEmitter {
     requestTargetsUpdate (target) {
         if (!target.isOriginal) return;
         this._refreshTargets = true;
+    }
+
+    // Project-level container metadata has its own update channel, coalesced per frame.
+    requestContainersUpdate () {
+        this._refreshContainers = true;
+    }
+
+    emitContainersUpdate () {
+        this._refreshContainers = false;
+        this.emit(Runtime.CONTAINERS_UPDATE);
     }
 
     /**

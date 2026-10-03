@@ -1245,6 +1245,7 @@ class Blocks {
         }
         if (block.opcode === 'components_menu_numericTargets') return block.fields.numericTargets;
         if (block.opcode === 'components_menu_toggleTargets') return block.fields.toggleTargets;
+        if (block.opcode === 'containers_menu_sprites') return block.fields.sprites;
         const spriteMenuNames = ['TOWARDS', 'TO', 'OBJECT', 'VIDEOONMENU2',
             'DISTANCETOMENU', 'TOUCHINGOBJECTMENU', 'CLONE_OPTION'];
         for (let i = 0; i < spriteMenuNames.length; i++) {

@@ -529,11 +529,11 @@ test('nested transforms preserve local state, component interaction and independ
     t.end();
 });
 
-test('transform validation and metadata loading reject singular and non-finite values', t => {
+test('transform validation rejects non-finite values and loading clamps size to an invertible range', t => {
     const {vm, add} = setup();
     add('A//one');
     vm.setSpriteFolderContainer('A', true);
-    for (const patch of [{size: 0}, {size: -100}, {x: NaN}, {direction: Infinity},
+    for (const patch of [{size: Infinity}, {x: NaN}, {direction: Infinity},
         {rotationStyle: 'invalid'}, {rotation: 90}, {bad: 1}]) {
         t.notOk(vm.setSpriteContainerTransform('A', patch));
     }
@@ -545,7 +545,7 @@ test('transform validation and metadata loading reject singular and non-finite v
     t.same(vm.runtime.spriteContainers.serialize(), data);
     vm.runtime.spriteContainers.load([{path: 'A', transform: {size: 0, y: Infinity, x: 20}}]);
     t.same(vm.runtime.spriteContainers.get('A').transform,
-        {x: 20, y: 0, size: 100, direction: 90, rotationStyle: 'all around'});
+        {x: 20, y: 0, size: 0.01, direction: 90, rotationStyle: 'all around'});
     vm.quit();
     t.end();
 });

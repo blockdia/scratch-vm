@@ -44,6 +44,11 @@ class Containers {
                     blockType: BlockType.COMMAND,
                     text: text('setRotationStyle', 'set rotation style of container [CONTAINER] to [STYLE]'),
                     arguments: {CONTAINER: container, STYLE: {type: ArgumentType.STRING, menu: 'rotationStyles'}}},
+                {opcode: 'worldProperty',
+                    blockType: BlockType.REPORTER,
+                    text: text('worldProperty', 'world [PROPERTY] of [TARGET]'),
+                    disableMonitor: true,
+                    arguments: {PROPERTY: property, TARGET: {type: ArgumentType.STRING, menu: 'sprites'}}},
                 '---',
                 {opcode: 'show',
                     blockType: BlockType.COMMAND,
@@ -81,6 +86,7 @@ class Containers {
             ],
             menus: {
                 containers: {acceptReporters: true, items: 'getContainers'},
+                sprites: {acceptReporters: true, items: 'getSprites'},
                 properties: {acceptReporters: false,
                     items: [item('x', 'x position'), item('y', 'y position'),
                         item('size', 'size'), item('direction', 'direction')]},
@@ -108,6 +114,18 @@ class Containers {
         return items.length ? items : [{text: text('noContainers', 'no containers'), value: ''}];
     }
 
+    getSprites () {
+        const editing = this.runtime.getEditingTarget();
+        const items = [];
+        if (editing && !editing.isStage) items.push({text: text('myself', 'myself'), value: '_myself_'});
+        for (const target of this.runtime.targets) {
+            if (target.isOriginal && !target.isStage && (!editing || target.sprite !== editing.sprite)) {
+                items.push({text: target.getName(), value: target.getName()});
+            }
+        }
+        return items.length ? items : [{text: text('noSprites', 'no sprites'), value: ''}];
+    }
+
     _container (value, util) {
         value = Cast.toString(value);
         const containers = this.runtime.spriteContainers;
@@ -119,21 +137,27 @@ class Containers {
         return containers.get(value);
     }
 
-    _changed (container, changed) {
-        if (changed && !this.runtime.spriteContainers.cloneDefinitions.has(container.path)) {
-            const original = this.runtime.targets.find(target => target.isOriginal);
-            if (original) this.runtime.requestTargetsUpdate(original);
-        }
-    }
-
     _setTransform (container, patch) {
-        if (container) this._changed(container, this.runtime.spriteContainers.setTransform(container.path, patch));
+        if (container) this.runtime.spriteContainers.setTransform(container.path, patch);
     }
 
     property (args, util) {
         const container = this._container(args.CONTAINER, util);
         return container && numericProperties.includes(args.PROPERTY) ?
             (container.transform || Transform.defaults)[args.PROPERTY] : 0;
+    }
+
+    worldProperty (args, util) {
+        const name = Cast.toString(args.TARGET);
+        const target = name === '_myself_' ? util.target : this.runtime.getSpriteTargetByName(name);
+        if (!target || target.isStage) return 0;
+        switch (args.PROPERTY) {
+        case 'x': return target.getWorldPosition()[0];
+        case 'y': return target.getWorldPosition()[1];
+        case 'direction': return target.getWorldDirection();
+        case 'size': return target.getWorldSize();
+        default: return 0;
+        }
     }
 
     _setProperty (args, util, change) {
@@ -162,7 +186,7 @@ class Containers {
 
     _setVisible (args, util, visible) {
         const container = this._container(args.CONTAINER, util);
-        if (container) this._changed(container, this.runtime.spriteContainers.setVisible(container.path, visible));
+        if (container) this.runtime.spriteContainers.setVisible(container.path, visible);
     }
 
     show (args, util) {
@@ -181,16 +205,15 @@ class Containers {
     goToLayer (args, util) {
         const container = this._container(args.CONTAINER, util);
         if (!container || !['front', 'back'].includes(args.LAYER)) return;
-        this._changed(container, this.runtime.spriteContainers.setOrder(container.path,
-            args.LAYER === 'front' ? Infinity : -Infinity));
+        this.runtime.spriteContainers.setOrder(container.path, args.LAYER === 'front' ? Infinity : -Infinity);
     }
 
     moveLayers (args, util) {
         const container = this._container(args.CONTAINER, util);
         const layers = Cast.toNumber(args.LAYERS);
         if (!container || !Number.isFinite(layers) || !['forward', 'backward'].includes(args.DIRECTION)) return;
-        this._changed(container, this.runtime.spriteContainers.setOrder(container.path,
-            Math.round(layers) * (args.DIRECTION === 'forward' ? 1 : -1), true));
+        this.runtime.spriteContainers.setOrder(container.path,
+            Math.round(layers) * (args.DIRECTION === 'forward' ? 1 : -1), true);
     }
 
     createClone (args, util) {

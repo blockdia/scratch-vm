@@ -46,6 +46,7 @@ class SpriteContainers {
                     transform: Transform.normalize(entry.transform)});
             }
         }
+        this.runtime.requestContainersUpdate();
     }
 
     set (path, enabled) {
@@ -92,6 +93,7 @@ class SpriteContainers {
             this.refreshExecutableOrder();
             this.runtime.requestRedraw();
         }
+        this.runtime.requestContainersUpdate();
         return true;
     }
 
@@ -281,6 +283,7 @@ class SpriteContainers {
                 this.refreshExecutableOrder();
             }
             this.runtime.requestRedraw();
+            this.runtime.requestContainersUpdate();
         } finally {
             this.syncing = false;
         }

@@ -115,7 +115,8 @@ test('transforms compose, validate numeric input, and update the editor without 
     extension.setProperty(args, util);
     extension.changeProperty({...args, VALUE: '5'}, util);
     t.equal(extension.property(args, util), 25);
-    t.ok(vm.runtime._refreshTargets, 'runtime changes refresh container controls at the next frame');
+    t.ok(vm.runtime._refreshContainers, 'runtime changes refresh container controls at the next frame');
+    t.notOk(vm.runtime._refreshTargets, 'container changes do not masquerade as a target update');
     extension.setProperty({CONTAINER: 'A', PROPERTY: 'size', VALUE: 200}, util);
     t.same(target.getWorldPosition(), [70, 10], 'nested transforms use local coordinates');
     t.same([target.x, target.y], [10, 5], 'member local properties are preserved');
@@ -126,7 +127,7 @@ test('transforms compose, validate numeric input, and update the editor without 
     extension.setRotationStyle({CONTAINER: ContainerOption.SELF, STYLE: 'left-right'}, util);
     t.equal(containers.get('A//N').transform.rotationStyle, 'left-right');
     const saved = containers.serialize();
-    for (const [PROPERTY, VALUE] of [['size', 0], ['size', -1], ['size', 10001], ['x', Infinity],
+    for (const [PROPERTY, VALUE] of [['size', Infinity], ['x', Infinity],
         ['y', -Infinity], ['__proto__', 1], ['rotationStyle', 2]]) {
         extension.setProperty({...args, PROPERTY, VALUE}, util);
     }
@@ -136,6 +137,154 @@ test('transforms compose, validate numeric input, and update the editor without 
     extension.setProperty({...args, CONTAINER: 'missing'}, util);
     t.equal(extension.property({...args, CONTAINER: 'missing'}, util), 0);
     t.equal(extension.property({...args, PROPERTY: '__proto__'}, util), 0);
+    vm.quit();
+    t.end();
+});
+
+test('size changes saturate at both boundaries and recover on the next inward change', t => {
+    const {vm, add, extension} = setup();
+    const target = add('A//one');
+    vm.setSpriteFolderContainer('A', true);
+    const args = {CONTAINER: 'A', PROPERTY: 'size'};
+    const util = {target};
+    extension.changeProperty({...args, VALUE: -200}, util);
+    t.equal(extension.property(args, util), 0.01);
+    extension.changeProperty({...args, VALUE: 1}, util);
+    t.equal(extension.property(args, util), 1.01);
+    extension.setProperty({...args, VALUE: 20000}, util);
+    t.equal(extension.property(args, util), 10000);
+    extension.changeProperty({...args, VALUE: -1}, util);
+    t.equal(extension.property(args, util), 9999);
+    t.ok(vm.setSpriteContainerTransform('A', {x: 5, size: 0}), 'API clamps the same way as blocks');
+    t.same([extension.property(args, util), extension.property({...args, PROPERTY: 'x'}, util)], [0.01, 5]);
+    vm.quit();
+    t.end();
+});
+
+test('world reporters compose nested transforms, reflections and live clone state', t => {
+    const {vm, add, extension, containers} = setup();
+    const target = add('A//B//one');
+    const outside = add('outside');
+    const stage = add('stage');
+    stage.isStage = true;
+    target.setXY(10, 20);
+    target.setDirection(90);
+    target.size = 150;
+    vm.setSpriteFolderContainer('A', true);
+    vm.setSpriteFolderContainer('A//B', true);
+    vm.setSpriteContainerTransform('A', {x: 100, y: 50, size: 200, direction: 180});
+    vm.setSpriteContainerTransform('A//B', {x: 5, y: 10, size: 50});
+    const values = (sprite, TARGET = '_myself_') => ['x', 'y', 'direction', 'size'].map(PROPERTY =>
+        extension.worldProperty({PROPERTY, TARGET}, {target: sprite}));
+    const near = (actual, expected) => actual.forEach((value, i) => t.ok(Math.abs(value - expected[i]) < 1e-8));
+    near(values(target), [140, 30, 180, 150]);
+    t.same([target.x, target.y, target.direction, target.size], [10, 20, 90, 150], 'local values unchanged');
+    target.setRotationStyle("don't rotate");
+    near(values(target), [140, 30, 180, 150]);
+    vm.setSpriteContainerTransform('A', {rotationStyle: 'left-right', direction: -90});
+    near(values(target), [80, 90, -90, 150]);
+    const clone = containers.createClone('A//B')[0];
+    containers.setTransform(containers.getContainingContainer(clone).id, {x: 20});
+    near(values(clone), [50, 90, -90, 150]);
+    near(values(clone, target.getName()), [80, 90, -90, 150]);
+    near(values(stage, target.getName()), [80, 90, -90, 150]);
+    near(values(outside, target.getName()), [80, 90, -90, 150]);
+    near(values(target), [80, 90, -90, 150]);
+    near(values(outside), [0, 0, 90, 100]);
+    t.same(values(stage), [0, 0, 0, 0]);
+    t.same(values(target, 'missing'), [0, 0, 0, 0]);
+    t.same(values(target, '_stage_'), [0, 0, 0, 0]);
+    t.equal(extension.worldProperty({PROPERTY: 'invalid', TARGET: target.getName()}, {target}), 0);
+    const numericName = add('123');
+    numericName.setXY(42, 0);
+    t.equal(extension.worldProperty({PROPERTY: 'x', TARGET: 123}, {target: stage}), 42,
+        'reporter inputs are cast to sprite names');
+    t.match(vm.runtime.getBlocksXML(stage).find(category => category.id === 'containers').xml,
+        'containers_worldProperty', 'stage scripts can query other sprites');
+    vm.quit();
+    t.end();
+});
+
+test('world target menus and fixed references follow sprites and preserve shared named choices', async t => {
+    const {vm, add, extension} = setup();
+    t.teardown(() => vm.quit());
+    t.same(extension.getSprites().map(item => item.value), ['']);
+    const stage = add('stage');
+    stage.isStage = true;
+    const target = add('A//one');
+    const other = add('B//two');
+    vm.setSpriteFolderContainer('A', true);
+    vm.runtime.setEditingTarget(target);
+    t.same(extension.getSprites().map(item => item.value), ['_myself_', 'B//two']);
+    const clone = target.makeClone();
+    vm.runtime.addTarget(clone);
+    vm.runtime.setEditingTarget(clone);
+    t.same(extension.getSprites().map(item => item.value), ['_myself_', 'B//two'],
+        'clones are not duplicated in the menu');
+    vm.runtime.setEditingTarget(stage);
+    t.same(extension.getSprites().map(item => item.value), ['A//one', 'B//two']);
+    for (const [id, opcode, field, value] of [
+        ['named', 'containers_menu_sprites', 'sprites', 'B//two'],
+        ['self', 'containers_menu_sprites', 'sprites', '_myself_'],
+        ['literal', 'text', 'TEXT', 'B//two']
+    ]) {
+        target.blocks.createBlock({id,
+            opcode,
+            fields: {[field]: {name: field, value}},
+            inputs: {},
+            topLevel: true,
+            shadow: true,
+            parent: null,
+            next: null});
+    }
+    vm.renameSprite(other.id, 'C//renamed');
+    t.same(extension.getSprites().map(item => item.value), ['A//one', 'C//renamed']);
+    t.equal(target.blocks.getBlock('named').fields.sprites.value, 'C//renamed');
+    t.equal(target.blocks.getBlock('self').fields.sprites.value, '_myself_');
+    t.equal(target.blocks.getBlock('literal').fields.TEXT.value, 'B//two');
+    await vm.shareBlocksToTarget([target.blocks.getBlock('named')], other.id, target.id);
+    const shared = Object.values(other.blocks._blocks).find(block => block.opcode === 'containers_menu_sprites');
+    t.equal(shared.fields.sprites.value, 'C//renamed',
+        'sharing to the named sprite preserves the explicit source instead of rewriting it to myself');
+    await vm.shareBlocksToTarget([target.blocks.getBlock('self')], stage.id, target.id);
+    t.equal(Object.values(stage.blocks._blocks)[0].fields.sprites.value, '_myself_',
+        'relative choices survive sharing even when unavailable on the stage');
+});
+
+test('container events work without target updates, coalesce per frame, and clear with the project', t => {
+    const {vm, add, extension} = setup();
+    const stage = add('stage');
+    stage.isStage = true;
+    const target = add('A//one');
+    const updates = [];
+    let targetUpdates = 0;
+    let projectChanges = 0;
+    vm.on('containersUpdate', data => updates.push(data));
+    vm.on('targetsUpdate', () => targetUpdates++);
+    vm.on('PROJECT_CHANGED', () => projectChanges++);
+    vm.setSpriteFolderContainer('A', true);
+    t.same(updates.pop(), [{path: 'A', visible: true}]);
+    t.equal(projectChanges, 1, 'editor conversion marks the project changed');
+    vm.setSpriteContainerTransform('A', {x: 10});
+    t.equal(updates.pop()[0].transform.x, 10, 'editor edits publish immediately');
+    t.equal(targetUpdates, 0, 'no surrogate stage or sprite update');
+    vm.runtime._refreshTargets = false;
+    const changesBeforeRun = projectChanges;
+    extension.setProperty({CONTAINER: 'A', PROPERTY: 'x', VALUE: 20}, {target});
+    extension.hide({CONTAINER: 'A'}, {target});
+    t.equal(updates.length, 0, 'script changes wait for a frame');
+    // A renderer is unnecessary to verify the runtime event boundary.
+    vm.runtime.renderer = null;
+    vm.runtime._step();
+    t.equal(updates.length, 1);
+    t.equal(updates[0][0].transform.x, 20);
+    t.notOk(updates[0][0].visible);
+    t.equal(targetUpdates, 0);
+    t.equal(projectChanges, changesBeforeRun, 'script updates preserve native project dirty semantics');
+    vm.runtime._step();
+    t.equal(updates.length, 1, 'idle frames do not publish again');
+    vm.clear();
+    t.same(updates[updates.length - 1], [], 'clearing a project publishes empty container state');
     vm.quit();
     t.end();
 });

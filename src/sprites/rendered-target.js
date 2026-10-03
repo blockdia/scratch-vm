@@ -258,6 +258,21 @@ class RenderedTarget extends Target {
         return this.localToWorld(this.x, this.y);
     }
 
+    // Transform the movement heading, independently of this sprite's costume rotation style.
+    getWorldDirection () {
+        const matrix = this._containerTransform || ContainerTransform.identity;
+        const angle = (90 - this.direction) * Math.PI / 180;
+        const x = Math.cos(angle);
+        const y = Math.sin(angle);
+        const worldAngle = Math.atan2((matrix[1] * x) + (matrix[3] * y), (matrix[0] * x) + (matrix[2] * y));
+        return MathUtil.wrapClamp(90 - (worldAngle * 180 / Math.PI), -179, 180);
+    }
+
+    getWorldSize () {
+        const matrix = this._containerTransform || ContainerTransform.identity;
+        return this.size * Math.hypot(matrix[0], matrix[1]);
+    }
+
     get audioPlayer () {
         /* eslint-disable no-console */
         console.warn('get audioPlayer deprecated, please update to use .sprite.soundBank methods');

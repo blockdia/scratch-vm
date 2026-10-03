@@ -4,12 +4,14 @@ const defaults = Object.freeze({x: 0, y: 0, size: 100, direction: 90, rotationSt
 const identity = Object.freeze([1, 0, 0, 1, 0, 0]);
 const valid = (key, value) => (key === 'rotationStyle' ?
     ['all around', 'left-right', "don't rotate"].includes(value) :
-    Number.isFinite(value) && (key !== 'size' || (value >= 0.01 && value <= 10000)));
+    Number.isFinite(value));
 const normalize = value => {
     const result = {};
     for (const key of Object.keys(defaults)) {
         result[key] = value && valid(key, value[key]) ? value[key] : defaults[key];
     }
+    // Keep matrices invertible while saturating relative size changes at the boundary.
+    result.size = MathUtil.clamp(result.size, 0.01, 10000);
     result.direction = MathUtil.wrapClamp(result.direction, -179, 180);
     return Object.keys(defaults).every(key => result[key] === defaults[key]) ? null : result;
 };
