@@ -105,7 +105,8 @@ class Containers {
                 {opcode: 'deleteClone',
                     blockType: BlockType.COMMAND,
                     isTerminal: true,
-                    text: text('deleteClone', 'delete this container clone')}
+                    text: text('deleteClone', 'delete clone of container [CONTAINER]'),
+                    arguments: {CONTAINER: {...container, defaultValue: ContainerOption.SELF}}}
             ],
             menus: {
                 effects: {acceptReporters: false, items: Effects.names.map(name => item(name, name))},
@@ -269,7 +270,11 @@ class Containers {
     }
 
     deleteClone (args, util) {
-        const container = this.runtime.spriteContainers.getContainingContainer(util.target);
+        const value = Cast.toString(args.CONTAINER);
+        // Deletion only addresses a clone on the executing member's own ancestry.
+        // Named paths must never resolve to originals or independent instances.
+        const container = this.runtime.spriteContainers.getTargetContainers(util.target).reverse()
+            .find(member => member.isClone && (value === ContainerOption.SELF || member.path === value));
         if (container) this.runtime.spriteContainers.deleteClone(container.id);
     }
 }

@@ -421,10 +421,10 @@ test('relative operations isolate container instances and group deletion stops o
         stopped.push(member.id);
         stopForTarget(member);
     };
-    extension.deleteClone({}, {target});
-    extension.deleteClone({}, {target: outside});
+    extension.deleteClone({CONTAINER: ContainerOption.SELF}, {target});
+    extension.deleteClone({CONTAINER: ContainerOption.SELF}, {target: outside});
     t.equal(vm.runtime._cloneCounter, 4, 'source and ordinary sprites cannot delete a container');
-    extension.deleteClone({}, {target: clones[0]});
+    extension.deleteClone({CONTAINER: ContainerOption.SELF}, {target: clones[0]});
     t.same([...new Set(stopped)].sort(), clones.map(member => member.id).sort(),
         'all deleted members have their threads stopped');
     t.equal(vm.runtime._cloneCounter, 2);
@@ -447,7 +447,7 @@ test('nested instance deletion preserves its parent, siblings and source, includ
     const extra = nestedClone.makeClone();
     vm.runtime.addTarget(extra);
     const nestedID = containers.getContainingContainer(nestedClone).id;
-    extension.deleteClone({}, {target: extra});
+    extension.deleteClone({CONTAINER: ContainerOption.SELF}, {target: extra});
     t.notOk(containers.get(nestedID), 'whole nested instance is removed');
     t.ok(vm.runtime.targets.includes(rootClone), 'parent member survives');
     t.ok(siblings.every(member => vm.runtime.targets.includes(member)), 'independent sibling instance survives');
@@ -455,12 +455,82 @@ test('nested instance deletion preserves its parent, siblings and source, includ
     t.equal(vm.runtime._cloneCounter, 3);
     const ordinary = nested.makeClone();
     vm.runtime.addTarget(ordinary);
-    extension.deleteClone({}, {target: ordinary});
+    extension.deleteClone({CONTAINER: ContainerOption.SELF}, {target: ordinary});
     t.ok(vm.runtime.targets.includes(ordinary), 'a sprite clone in an original container cannot delete the source');
     extension.createClone({CONTAINER: ContainerOption.SELF}, {target: rootClone});
     t.equal(vm.runtime._cloneCounter, 5, 'copying the remaining parent does not resurrect the deleted subtree');
     vm.stopAll();
     t.equal(containers.cloneDefinitions.size, 0);
+    vm.quit();
+    t.end();
+});
+
+test('named clone deletion resolves only the executing member chain across nested independent instances', t => {
+    for (const selection of ['Outer', 'Outer//Inner', ContainerOption.SELF]) {
+        for (const independentInner of [false, true]) {
+            const {vm, add, extension, containers} = setup();
+            const root = add('Outer//one');
+            const nested = add('Outer//Inner//two');
+            vm.setSpriteFolderContainer('Outer', true);
+            vm.setSpriteFolderContainer('Outer//Inner', true);
+            const [rootClone, nestedClone] = containers.createClone('Outer');
+            const siblings = containers.createClone('Outer');
+            const innerID = containers.getContainingContainer(nestedClone).id;
+            const extraInner = containers.createClone(innerID);
+            const member = independentInner ? extraInner[0] : nestedClone;
+            const extraMember = member.makeClone();
+            vm.runtime.addTarget(extraMember);
+            const selectedID = containers.getContainingContainer(member).id;
+            extension.deleteClone({CONTAINER: selection}, {target: extraMember});
+            const label = `${selection}, independent inner: ${independentInner}`;
+            t.notOk(vm.runtime.targets.includes(member), `${label}: selected inner member deleted`);
+            t.notOk(vm.runtime.targets.includes(extraMember), `${label}: ordinary clone member deleted`);
+            t.notOk(containers.get(selectedID), `${label}: selected inner instance removed`);
+            t.equal(vm.runtime.targets.includes(rootClone), selection !== 'Outer', `${label}: parent membership`);
+            const otherInner = independentInner ? nestedClone : extraInner[0];
+            t.equal(vm.runtime.targets.includes(otherInner), selection !== 'Outer',
+                `${label}: sibling inner membership`);
+            t.ok(siblings.every(target => vm.runtime.targets.includes(target)),
+                `${label}: other outer instance survives`);
+            t.ok(vm.runtime.targets.includes(root) && vm.runtime.targets.includes(nested),
+                `${label}: originals survive`);
+            t.equal(vm.runtime._cloneCounter, selection === 'Outer' ? 2 : 4, `${label}: exact subtree removed`);
+            vm.quit();
+        }
+    }
+    t.end();
+});
+
+test('clone deletion ignores originals, absent ancestors and runtime IDs supplied as names', t => {
+    const {vm, add, extension, containers} = setup();
+    const root = add('Outer//one');
+    const nested = add('Outer//Inner//two');
+    const outside = add('outside');
+    const stage = add('stage');
+    stage.isStage = true;
+    vm.setSpriteFolderContainer('Outer', true);
+    vm.setSpriteFolderContainer('Outer//Inner', true);
+    const innerClone = containers.createClone('Outer//Inner')[0];
+    const [rootClone, nestedClone] = containers.createClone('Outer');
+    const instanceID = containers.getContainingContainer(nestedClone).id;
+    const ordinary = nested.makeClone();
+    vm.runtime.addTarget(ordinary);
+    const before = vm.runtime.targets.slice();
+    for (const target of [root, nested, outside, stage, ordinary]) {
+        for (const CONTAINER of ['Outer', 'Outer//Inner', ContainerOption.SELF, 'missing', instanceID]) {
+            extension.deleteClone({CONTAINER}, {target});
+        }
+    }
+    extension.deleteClone({CONTAINER: 'Outer'}, {target: innerClone});
+    extension.deleteClone({CONTAINER: 'Outer//Inner'}, {target: rootClone});
+    extension.deleteClone({CONTAINER: instanceID}, {target: nestedClone});
+    extension.deleteClone({CONTAINER: 'missing'}, {target: nestedClone});
+    t.same(vm.runtime.targets, before, 'no-op selections leave every target alive');
+    t.equal(vm.runtime._cloneCounter, 5, 'no-op selections preserve clone count');
+    extension.deleteClone({CONTAINER: ContainerOption.SELF}, {target: innerClone});
+    t.notOk(vm.runtime.targets.includes(innerClone), 'relative deletion works beneath an original parent');
+    t.ok(vm.runtime.targets.includes(rootClone) && vm.runtime.targets.includes(nestedClone),
+        'relative deletion preserves the other outer instance');
     vm.quit();
     t.end();
 });
@@ -493,6 +563,11 @@ test('creating a container loads the built-in once and emits reporter-compatible
     const deletion = vm.runtime.getBlocksJSON().find(block => block && block.type === 'containers_deleteClone');
     t.equal(deletion.previousStatement, null, 'delete connects to a preceding command');
     t.notOk(Object.prototype.hasOwnProperty.call(deletion, 'nextStatement'), 'delete is a terminal block');
+    t.ok(deletion.args0.some(argument => argument.name === 'CONTAINER' && argument.type === 'input_value'),
+        'delete accepts a container menu or reporter');
+    const deletionXML = xml.match(/<block type="containers_deleteClone"[\s\S]*?<\/block>/)[0];
+    t.match(deletionXML, /<value name="CONTAINER"><shadow[^>]*>\s*<field[^>]*>_mycontainer_<\/field>/,
+        'delete defaults to the containing container');
     vm.quit();
     t.end();
 });
