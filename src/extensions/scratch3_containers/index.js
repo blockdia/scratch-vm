@@ -47,7 +47,7 @@ class Containers {
                     arguments: {CONTAINER: container, STYLE: {type: ArgumentType.STRING, menu: 'rotationStyles'}}},
                 {opcode: 'worldProperty',
                     blockType: BlockType.REPORTER,
-                    text: text('worldProperty', 'world [PROPERTY] of [TARGET]'),
+                    text: text('worldProperty', '[PROPERTY] of [TARGET] on stage'),
                     disableMonitor: true,
                     arguments: {PROPERTY: property, TARGET: {type: ArgumentType.STRING, menu: 'sprites'}}},
                 '---',
