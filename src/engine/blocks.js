@@ -1150,8 +1150,8 @@ class Blocks {
     // Apply a folder rename simultaneously so one replacement cannot cascade into another.
     updateContainerReferences (renamedPaths) {
         for (const block of Object.values(this._blocks)) {
-            if (block.opcode !== 'containers_menu_containers') continue;
-            const field = block.fields.containers;
+            if (!['containers_menu_containers', 'containers_menu_ancestorContainers'].includes(block.opcode)) continue;
+            const field = block.fields.containers || block.fields.ancestorContainers;
             if (field && field.value !== ContainerOption.SELF && renamedPaths.has(field.value)) {
                 field.value = renamedPaths.get(field.value);
             }

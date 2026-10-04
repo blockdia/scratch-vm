@@ -112,12 +112,15 @@ class Containers {
                 {opcode: 'deleteClone',
                     blockType: BlockType.COMMAND,
                     isTerminal: true,
-                    text: text('deleteClone', 'delete clone of [CONTAINER]'),
-                    arguments: {CONTAINER: {...container, defaultValue: ContainerOption.SELF}}}
+                    text: text('deleteClone', "delete the [CONTAINER] container clone I'm in"),
+                    arguments: {CONTAINER: {type: ArgumentType.STRING,
+                        menu: 'ancestorContainers',
+                        defaultValue: ContainerOption.SELF}}}
             ],
             menus: {
                 effects: {acceptReporters: false, items: Effects.names.map(name => item(name, name))},
                 containers: {acceptReporters: true, items: 'getContainers'},
+                ancestorContainers: {acceptReporters: true, items: 'getAncestorContainers'},
                 sprites: {acceptReporters: true, items: 'getSprites'},
                 properties: {acceptReporters: false,
                     items: [item('x', 'x position'), item('y', 'y position'),
@@ -144,6 +147,16 @@ class Containers {
             if (!current || path !== current.path) items.push({text: path, value: path});
         }
         return items.length ? items : [{text: text('noContainers', 'no containers'), value: ''}];
+    }
+
+    getAncestorContainers () {
+        const target = this.runtime.getEditingTarget();
+        const ancestry = target ? this.runtime.spriteContainers.getTargetContainers(target) : [];
+        // The relative choice replaces the innermost container, just like the sprite menu.
+        // The relative default remains available on the stage and outside containers.
+        return [{text: text('innermostContainer', 'innermost'), value: ContainerOption.SELF},
+            ...ancestry.slice(0, -1).reverse()
+                .map(({path}) => ({text: path, value: path}))];
     }
 
     getSprites () {
