@@ -128,7 +128,7 @@ class SpriteContainers {
     setOrder (path, order, relative = false) {
         if (!this.definitions.has(path) && !this.cloneDefinitions.has(path)) return false;
         const renderer = this.runtime.renderer;
-        if (renderer && renderer.setDrawableContainerOrder) {
+        if (renderer) {
             renderer.setDrawableContainerOrder(path, order, StageLayering.SPRITE_LAYER, relative);
             this.refreshExecutableOrder();
             this.runtime.requestRedraw();
@@ -141,7 +141,7 @@ class SpriteContainers {
     // request must not move a child past its container in the execution list.
     refreshExecutableOrder () {
         const renderer = this.runtime.renderer;
-        if ((!this.definitions.size && !this.cloneDefinitions.size) || !renderer || !renderer.getDrawableOrder) return;
+        if ((!this.definitions.size && !this.cloneDefinitions.size) || !renderer) return;
         this.runtime.executableTargets.sort((a, b) =>
             renderer.getDrawableOrder(a.drawableID) - renderer.getDrawableOrder(b.drawableID));
     }
@@ -298,7 +298,7 @@ class SpriteContainers {
             const appearances = new Map();
             const used = new Set();
             for (const target of targets) {
-                if (target.isStage || !target.getDrawableIDs) continue;
+                if (target.isStage) continue;
                 const definitions = this.getTargetContainers(target);
                 const containers = definitions.map(container => container.id);
                 containers.forEach(id => used.add(id));
@@ -320,7 +320,7 @@ class SpriteContainers {
                     n !== target._containerTransform[i]);
                 target._containerTransform = matrix;
                 const renderer = this.runtime.renderer;
-                if (renderer && renderer.updateDrawableParentTransform) {
+                if (renderer) {
                     drawables.forEach(id => renderer.updateDrawableParentTransform(id, matrix));
                 }
                 // Bubbles use world bounds and stay upright at their normal size.
@@ -333,12 +333,8 @@ class SpriteContainers {
                 if (!used.has(id)) this.cloneDefinitions.delete(id);
             }
             const renderer = this.runtime.renderer;
-            if (renderer && renderer.setDrawableContainerAppearances) {
+            if (renderer) {
                 renderer.setDrawableContainerAppearances(Array.from(appearances.values()));
-            } else if (Array.from(appearances.values()).some(value => value.effects || value.clip)) {
-                this._requireAppearanceRenderer();
-            }
-            if (renderer && renderer.setDrawableContainerPaths) {
                 renderer.setDrawableContainerPaths(StageLayering.SPRITE_LAYER, memberships);
                 this.refreshExecutableOrder();
             }

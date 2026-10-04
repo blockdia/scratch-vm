@@ -31,6 +31,58 @@ const setup = () => {
     return {vm, renderer, add, extension: new ContainersExtension(vm.runtime)};
 };
 
+test('loaded container metadata requires the complete renderer synchronization contract', t => {
+    for (const method of ['updateDrawableParentTransform', 'setDrawableContainerAppearances',
+        'setDrawableContainerPaths', 'getDrawableOrder']) {
+        const {vm, renderer, add} = setup();
+        add('A//one');
+        add('A//two');
+        vm.runtime.spriteContainers.load([{path: 'A'}]);
+        const original = renderer[method];
+        renderer[method] = null;
+        t.throws(() => vm.runtime.spriteContainers.sync(), new RegExp(method), method);
+        t.notOk(vm.runtime.spriteContainers.syncing, 'failed synchronization releases its guard');
+        renderer[method] = original;
+        t.doesNotThrow(() => vm.runtime.spriteContainers.sync(), 'synchronization can retry after repair');
+        vm.quit();
+    }
+    t.end();
+});
+
+test('container ordering rejects a renderer without container ordering support', t => {
+    const {vm, renderer, add} = setup();
+    add('A//one');
+    vm.setSpriteFolderContainer('A', true);
+    renderer.setDrawableContainerOrder = null;
+    t.throws(() => vm.setSpriteContainerOrder('A', Infinity), /setDrawableContainerOrder/);
+    vm.quit();
+    t.end();
+});
+
+test('containers still work without an attached renderer', t => {
+    const vm = new VM();
+    const sprite = new Sprite(null, vm.runtime);
+    sprite.name = 'A//one';
+    const target = sprite.createClone();
+    vm.runtime.addTarget(target);
+    vm.setSpriteFolderContainer('A', true);
+    vm.setSpriteContainerTransform('A', {x: 30, size: 200});
+    vm.setSpriteContainerEffects('A', {ghost: 50});
+    vm.setSpriteContainerClip('A', {left: -10, right: 10, bottom: -10, top: 10});
+    vm.setSpriteContainerOrder('A', Infinity);
+    vm.setSpriteContainerVisible('A', false);
+    t.same(target.getWorldPosition(), [30, 0]);
+    t.notOk(target.isEffectivelyVisible());
+    const clones = vm.runtime.spriteContainers.createClone('A');
+    t.equal(clones.length, 1);
+    t.same(clones[0].getWorldPosition(), [30, 0]);
+    vm.stopAll();
+    t.equal(vm.runtime.spriteContainers.cloneDefinitions.size, 0);
+    t.equal(vm.runtime.spriteContainers.get('A').effects.ghost, 50);
+    vm.quit();
+    t.end();
+});
+
 test('container effects and clips validate, serialize, clone independently and avoid membership rebuilds', t => {
     const {vm, renderer, add} = setup();
     const target = add('A//N//one');
