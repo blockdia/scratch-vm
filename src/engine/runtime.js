@@ -16,6 +16,7 @@ const Thread = require('./thread');
 const log = require('../util/log');
 const maybeFormatMessage = require('../util/maybe-format-message');
 const StageLayering = require('./stage-layering');
+const SpriteContainers = require('./sprite-containers');
 const Variable = require('./variable');
 const xmlEscape = require('../util/xml-escape');
 const ScratchLinkWebSocket = require('../util/scratch-link-websocket');
@@ -218,6 +219,7 @@ class Runtime extends EventEmitter {
          * @type {Array.<!Target>}
          */
         this.targets = [];
+        this.spriteContainers = new SpriteContainers(this);
 
         /**
          * Targets in reverse order of execution. Shares its order with drawables.
@@ -316,6 +318,7 @@ class Runtime extends EventEmitter {
          * @type {boolean}
          */
         this._refreshTargets = false;
+        this._refreshContainers = false;
 
         /**
          * Map to look up all monitor block information by opcode.
@@ -771,6 +774,10 @@ class Runtime extends EventEmitter {
      */
     static get TARGETS_UPDATE () {
         return 'TARGETS_UPDATE';
+    }
+
+    static get CONTAINERS_UPDATE () {
+        return 'CONTAINERS_UPDATE';
     }
 
     /**
@@ -2370,6 +2377,8 @@ class Runtime extends EventEmitter {
         });
 
         this.targets.map(this.disposeTarget, this);
+        this.spriteContainers.load([]);
+        this.spriteContainers.sync();
         this.extensionStorage = {};
         // tw: explicitly emit a MONITORS_UPDATE instead of relying on implicit behavior of _step()
         if (!this._monitorState.empty()) {
@@ -2412,6 +2421,7 @@ class Runtime extends EventEmitter {
     addTarget (target) {
         this.targets.push(target);
         this.executableTargets.push(target);
+        this.spriteContainers.sync();
         if (target.isStage && !this._stageTarget) {
             this._stageTarget = target;
         }
@@ -2486,6 +2496,7 @@ class Runtime extends EventEmitter {
         if (this._stageTarget === disposingTarget) {
             this._stageTarget = null;
         }
+        this.spriteContainers.sync();
     }
 
     /**
@@ -2556,6 +2567,7 @@ class Runtime extends EventEmitter {
             }
         }
         this.targets = newTargets;
+        this.spriteContainers.sync();
         // Dispose of the active thread.
         if (this.sequencer.activeThread !== null) {
             this._stopThread(this.sequencer.activeThread);
@@ -2663,6 +2675,7 @@ class Runtime extends EventEmitter {
             this.emit(Runtime.TARGETS_UPDATE, false /* Don't emit project changed */);
             this._refreshTargets = false;
         }
+        if (this._refreshContainers) this.emitContainersUpdate();
 
         if (this._monitorState.dirty) {
             this.emit(Runtime.MONITORS_UPDATE, this._monitorState.shallowClone());
@@ -3309,10 +3322,11 @@ class Runtime extends EventEmitter {
 
     /**
      * Return whether there are clones available.
+     * @param {number} count Number of clone slots required.
      * @return {boolean} True until the number of clones hits runtimeOptions.maxClones
      */
-    clonesAvailable () {
-        return this._cloneCounter < this.runtimeOptions.maxClones;
+    clonesAvailable (count = 1) {
+        return this._cloneCounter + count <= this.runtimeOptions.maxClones;
     }
 
     /**
@@ -3443,6 +3457,16 @@ class Runtime extends EventEmitter {
     requestTargetsUpdate (target) {
         if (!target.isOriginal) return;
         this._refreshTargets = true;
+    }
+
+    // Project-level container metadata has its own update channel, coalesced per frame.
+    requestContainersUpdate () {
+        this._refreshContainers = true;
+    }
+
+    emitContainersUpdate () {
+        this._refreshContainers = false;
+        this.emit(Runtime.CONTAINERS_UPDATE);
     }
 
     /**

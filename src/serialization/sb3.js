@@ -775,6 +775,11 @@ const serialize = function (runtime, targetId, {allowOptimization = true} = {}) 
     }
 
     obj.targets = serializedTargets;
+    const spriteContainers = runtime.spriteContainers.serialize();
+    if (spriteContainers.length) {
+        obj.spriteContainers = spriteContainers;
+        extensions.add('containers');
+    }
 
     obj.monitors = serializeMonitors(runtime.getMonitorState(), runtime, extensions);
 
@@ -1645,6 +1650,12 @@ const deserialize = async function (json, runtime, zip, isSingleSprite) {
             }))
         .then(targets => replaceUnsafeCharsInVariableIds(targets))
         .then(targets => {
+            if (!isSingleSprite) {
+                runtime.spriteContainers.load(json.spriteContainers);
+                if (targets.some(target => runtime.spriteContainers.getTargetContainers(target).length)) {
+                    extensions.extensionIDs.add('containers');
+                }
+            }
             monitorObjects.map(monitorDesc => deserializeMonitor(monitorDesc, runtime, targets, extensions));
             if (Object.prototype.hasOwnProperty.call(json, 'extensionStorage')) {
                 runtime.extensionStorage = json.extensionStorage;

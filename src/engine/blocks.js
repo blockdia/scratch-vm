@@ -3,6 +3,7 @@ const mutationAdapter = require('./mutation-adapter');
 const xmlEscape = require('../util/xml-escape');
 const MonitorRecord = require('./monitor-record');
 const Clone = require('../util/clone');
+const ContainerOption = require('../util/container-option');
 const BlocksExecuteCache = require('./blocks-execute-cache');
 const BlocksRuntimeCache = require('./blocks-runtime-cache');
 const log = require('../util/log');
@@ -1146,6 +1147,18 @@ class Blocks {
         this.resetCache();
     }
 
+    // Apply a folder rename simultaneously so one replacement cannot cascade into another.
+    updateContainerReferences (renamedPaths) {
+        for (const block of Object.values(this._blocks)) {
+            if (block.opcode !== 'containers_menu_containers') continue;
+            const field = block.fields.containers;
+            if (field && field.value !== ContainerOption.SELF && renamedPaths.has(field.value)) {
+                field.value = renamedPaths.get(field.value);
+            }
+        }
+        this.resetCache();
+    }
+
     /**
      * Update sensing_of blocks after a variable gets renamed.
      * @param {string} oldName The old name of the variable that was renamed.
@@ -1232,6 +1245,7 @@ class Blocks {
         }
         if (block.opcode === 'components_menu_numericTargets') return block.fields.numericTargets;
         if (block.opcode === 'components_menu_toggleTargets') return block.fields.toggleTargets;
+        if (block.opcode === 'containers_menu_sprites') return block.fields.sprites;
         const spriteMenuNames = ['TOWARDS', 'TO', 'OBJECT', 'VIDEOONMENU2',
             'DISTANCETOMENU', 'TOUCHINGOBJECTMENU', 'CLONE_OPTION'];
         for (let i = 0; i < spriteMenuNames.length; i++) {

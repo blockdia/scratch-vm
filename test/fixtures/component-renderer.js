@@ -37,6 +37,16 @@ class ComponentRenderer extends FakeRenderer {
     updateDrawablePosition (id, position) {
         this._allDrawables[id]._position = position;
     }
+    updateDrawableParentTransform (id, matrix) {
+        this._allDrawables[id].parentTransform = matrix.slice();
+    }
+    setDrawableContainerAppearances (states) {
+        this.containerAppearances = new Map(states.map(state => [state.id, state]));
+    }
+    updateDrawableContainerAppearance (id, effects, clip) {
+        if (!this.containerAppearances) this.containerAppearances = new Map();
+        this.containerAppearances.set(id, {...this.containerAppearances.get(id), effects, clip});
+    }
     updateDrawableDirectionScale (id, direction, scale) {
         Object.assign(this._allDrawables[id], {direction, scale});
     }

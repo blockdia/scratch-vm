@@ -117,6 +117,9 @@ class VirtualMachine extends EventEmitter {
         this.runtime.on(Runtime.TARGETS_UPDATE, emitProjectChanged => {
             this.emitTargetsUpdate(emitProjectChanged);
         });
+        this.runtime.on(Runtime.CONTAINERS_UPDATE, () => {
+            this.emit('containersUpdate', this.runtime.spriteContainers.serialize());
+        });
         this.runtime.on(Runtime.MONITORS_UPDATE, monitorList => {
             this.emit(Runtime.MONITORS_UPDATE, monitorList);
         });
@@ -378,6 +381,7 @@ class VirtualMachine extends EventEmitter {
     clear () {
         this.runtime.dispose();
         this.editingTarget = null;
+        this.emitContainersUpdate();
         this.emitTargetsUpdate(false /* Don't emit project change */);
     }
 
@@ -811,12 +815,17 @@ class VirtualMachine extends EventEmitter {
         targets = targets.filter(target => !!target);
 
         return this._loadExtensions(extensions.extensionIDs, extensions.extensionURLs).then(() => {
-            targets.forEach(target => {
-                this.runtime.addTarget(target);
-                (/** @type RenderedTarget */ target).updateAllDrawableProperties();
-                // Ensure unique sprite name
-                if (target.isSprite()) this.renameSprite(target.id, target.getName());
-            });
+            this.runtime.spriteContainers.beginUpdate();
+            try {
+                targets.forEach(target => {
+                    this.runtime.addTarget(target);
+                    (/** @type RenderedTarget */ target).updateAllDrawableProperties();
+                    // Ensure unique sprite name
+                    if (target.isSprite()) this.renameSprite(target.id, target.getName());
+                });
+            } finally {
+                this.runtime.spriteContainers.endUpdate();
+            }
             // Sort the executable targets by layerOrder.
             // Remove layerOrder property after use.
             this.runtime.executableTargets.sort((a, b) => a.layerOrder - b.layerOrder);
@@ -841,6 +850,7 @@ class VirtualMachine extends EventEmitter {
 
             // Update the VM user's knowledge of targets and blocks on the workspace.
             this.runtime.setEditingTarget(this.editingTarget);
+            this.emitContainersUpdate();
             this.emitTargetsUpdate(false /* Don't emit project change */);
             this.emitWorkspaceUpdate();
             this.runtime.ioDevices.cloud.setStage(this.runtime.getTargetForStage());
@@ -1371,6 +1381,55 @@ class VirtualMachine extends EventEmitter {
         });
     }
 
+    // Container controls used by the sprite-folder context menu.
+    setSpriteFolderContainer (path, enabled) {
+        if (this.runtime.spriteContainers.set(path, enabled)) {
+            if (enabled && !this.extensionManager.isExtensionLoaded('containers')) {
+                this.extensionManager.loadExtensionIdSync('containers');
+            }
+            this.emitContainersUpdate();
+            this.runtime.emitProjectChanged();
+        }
+    }
+
+    setSpriteContainerVisible (path, visible) {
+        const containers = this.runtime.spriteContainers;
+        if (containers.setVisible(path, visible)) this._containerEdited(path);
+    }
+
+    setSpriteContainerOrder (path, order, relative = false) {
+        const containers = this.runtime.spriteContainers;
+        if (containers.setOrder(path, order, relative)) this._containerEdited(path);
+    }
+
+    setSpriteContainerTransform (path, transform) {
+        const containers = this.runtime.spriteContainers;
+        const changed = containers.setTransform(path, transform);
+        if (changed) this._containerEdited(path);
+        return changed;
+    }
+
+    setSpriteContainerEffects (path, effects) {
+        const changed = this.runtime.spriteContainers.setEffects(path, effects);
+        if (changed) this._containerEdited(path);
+        return changed;
+    }
+
+    setSpriteContainerClip (path, clip) {
+        const changed = this.runtime.spriteContainers.setClip(path, clip);
+        if (changed) this._containerEdited(path);
+        return changed;
+    }
+
+    _containerEdited (path) {
+        this.emitContainersUpdate();
+        if (!this.runtime.spriteContainers.cloneDefinitions.has(path)) this.runtime.emitProjectChanged();
+    }
+
+    emitContainersUpdate () {
+        this.runtime.emitContainersUpdate();
+    }
+
     /**
      * Rename a sprite.
      * @param {string} targetId ID of a target whose sprite to rename.
@@ -1393,6 +1452,7 @@ class VirtualMachine extends EventEmitter {
                 const oldName = sprite.name;
                 const newUnusedName = StringUtil.unusedName(newName, names);
                 sprite.name = newUnusedName;
+                this.runtime.spriteContainers.sync();
                 if (oldName === newUnusedName) {
                     return;
                 }
@@ -1528,8 +1588,13 @@ class VirtualMachine extends EventEmitter {
      *     updated for a new locale (or empty if locale hasn't changed.)
      */
     setLocale (locale, messages) {
-        if (locale !== formatMessage.setup().locale) {
-            formatMessage.setup({locale: locale, translations: {[locale]: messages}});
+        // A different message table for the current locale (for example the GUI adding
+        // renderer-owned translations after the first call) must also be applied.
+        if (locale !== formatMessage.setup().locale || (messages && messages !== this._localeMessages)) {
+            this._localeMessages = messages;
+            // format-message replaces strings with cached objects. Keep the GUI's shared
+            // messages intact so react-intl can still translate menu labels using them.
+            formatMessage.setup({locale: locale, translations: {[locale]: {...messages}}});
         }
         this.emit('LOCALE_CHANGED', locale);
         return this.extensionManager.refreshBlocks();
@@ -1900,9 +1965,15 @@ class VirtualMachine extends EventEmitter {
      */
     stopDrag (targetId) {
         const target = this.runtime.getTargetById(targetId);
-        if (target) {
+        // A clone may delete itself while being dragged. Release its retained
+        // reference without selecting a target that is no longer in the project.
+        const dragTarget = target || (this._dragTarget && this._dragTarget.id === targetId ?
+            this._dragTarget : null);
+        if (dragTarget) {
             this._dragTarget = null;
-            target.stopDrag();
+            dragTarget.stopDrag();
+        }
+        if (target) {
             this.setEditingTarget(target.sprite && target.sprite.clones[0] ?
                 target.sprite.clones[0].id : target.id);
         }

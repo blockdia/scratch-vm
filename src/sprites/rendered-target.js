@@ -6,6 +6,7 @@ const Target = require('../engine/target');
 const StageLayering = require('../engine/stage-layering');
 const ComponentModel = require('../components/model');
 const ComponentController = require('../components/controller');
+const ContainerTransform = require('../util/container-transform');
 
 /**
  * Rendered target: instance of a sprite (clone), or the stage.
@@ -105,6 +106,8 @@ class RenderedTarget extends Target {
          * @type {boolean}
          */
         this.visible = true;
+        this._containerVisible = true;
+        this._containerClonePaths = null;
 
         /**
          * Size of rendered target as a percent of costume size.
@@ -178,14 +181,16 @@ class RenderedTarget extends Target {
     /**
      * Create a drawable with the this.renderer.
      * @param {boolean} layerGroup The layer group this drawable should be added to
+     * @param {boolean} startHats Whether to start clone hats immediately.
      */
-    initDrawable (layerGroup) {
+    initDrawable (layerGroup, startHats = true) {
         if (this.renderer) {
             if (this.componentController) this.componentController.init();
             else this.drawableID = this.renderer.createDrawable(layerGroup);
         }
+        this.runtime.spriteContainers.sync(this);
         // If we're a clone, start the hats.
-        if (!this.isOriginal) {
+        if (!this.isOriginal && startHats) {
             this.runtime.startHats(
                 'control_start_as_clone', null, this
             );
@@ -210,6 +215,7 @@ class RenderedTarget extends Target {
         if (this.renderer && order !== null) {
             this.renderer.setDrawableGroupOrder(this.componentController.group, order === 0 ? -Infinity : order);
         }
+        this.runtime.spriteContainers.sync(this);
         this.runtime.requestRedraw();
         this.runtime.requestTargetsUpdate(this);
     }
@@ -230,11 +236,60 @@ class RenderedTarget extends Target {
 
     _componentFence (x, y) {
         const bounds = this._componentBounds();
+        const current = this.localToWorld(this.x, this.y);
+        const next = this.localToWorld(x, y);
         const inset = Math.min(15, Math.floor(Math.min(bounds.right - bounds.left, bounds.top - bounds.bottom) / 2));
         const sx = (this.runtime.stageWidth / 2) - inset;
         const sy = (this.runtime.stageHeight / 2) - inset;
-        return [MathUtil.clamp(x, this.x - sx - bounds.right, this.x + sx - bounds.left),
-            MathUtil.clamp(y, this.y - sy - bounds.top, this.y + sy - bounds.bottom)];
+        return this.worldToLocal(
+            MathUtil.clamp(next[0], current[0] - sx - bounds.right, current[0] + sx - bounds.left),
+            MathUtil.clamp(next[1], current[1] - sy - bounds.top, current[1] + sy - bounds.bottom));
+    }
+
+    localToWorld (x, y) {
+        return ContainerTransform.point(this._containerTransform || ContainerTransform.identity, x, y);
+    }
+
+    worldToLocal (x, y) {
+        return ContainerTransform.inversePoint(this._containerTransform || ContainerTransform.identity, x, y);
+    }
+
+    getWorldPosition () {
+        return this.localToWorld(this.x, this.y);
+    }
+
+    // Transform the movement heading, independently of this sprite's costume rotation style.
+    getWorldDirection () {
+        const matrix = this._containerTransform || ContainerTransform.identity;
+        const angle = (90 - this.direction) * Math.PI / 180;
+        const x = Math.cos(angle);
+        const y = Math.sin(angle);
+        const worldAngle = Math.atan2((matrix[1] * x) + (matrix[3] * y), (matrix[0] * x) + (matrix[2] * y));
+        return MathUtil.wrapClamp(90 - (worldAngle * 180 / Math.PI), -179, 180);
+    }
+
+    getWorldSize () {
+        const matrix = this._containerTransform || ContainerTransform.identity;
+        return this.size * Math.hypot(matrix[0], matrix[1]);
+    }
+
+    // Invert only the linear transform: container translation must not affect a heading.
+    setWorldDirection (direction) {
+        if (!Number.isFinite(direction)) return;
+        const matrix = this._containerTransform || ContainerTransform.identity;
+        const angle = (90 - MathUtil.wrapClamp(direction, -179, 180)) * Math.PI / 180;
+        const x = Math.cos(angle);
+        const y = Math.sin(angle);
+        const det = (matrix[0] * matrix[3]) - (matrix[1] * matrix[2]);
+        const localX = ((matrix[3] * x) - (matrix[2] * y)) / det;
+        const localY = ((matrix[0] * y) - (matrix[1] * x)) / det;
+        this.setDirection(90 - (Math.atan2(localY, localX) * 180 / Math.PI));
+    }
+
+    setWorldSize (size) {
+        if (!Number.isFinite(size)) return;
+        const matrix = this._containerTransform || ContainerTransform.identity;
+        this.setSize(size / Math.hypot(matrix[0], matrix[1]));
     }
 
     get audioPlayer () {
@@ -395,9 +450,28 @@ class RenderedTarget extends Target {
         this.runtime.requestTargetsUpdate(this);
     }
 
+    /** @returns {boolean} Visibility after applying all ancestor containers. */
+    isEffectivelyVisible () {
+        return this.visible && this._containerVisible;
+    }
+
+    updateContainerVisibility () {
+        if (!this.isEffectivelyVisible() && this.componentController) this.componentController.cancel();
+        if (this.renderer && this.drawableID !== null) {
+            this.renderer.updateDrawableVisible(this.drawableID, this.isEffectivelyVisible());
+            if (this.componentController) this.componentController.sync();
+            this.emitVisualChange();
+            const bubble = this.getCustomState('Scratch.looks');
+            if (bubble && bubble.drawableId !== null) {
+                this.renderer.updateDrawableVisible(bubble.drawableId, this.isEffectivelyVisible());
+            }
+            this.runtime.requestRedraw();
+        }
+    }
+
     /**
-     * Set visibility; i.e., whether it's shown or hidden.
-     * @param {!boolean} visible True if should be shown.
+     * Set the sprite's own visibility, independently of its containers.
+     * @param {boolean} visible True if the sprite should be shown.
      */
     setVisible (visible) { // used by compiler
         if (this.isStage) {
@@ -406,7 +480,7 @@ class RenderedTarget extends Target {
         this.visible = !!visible;
         if (!this.visible && this.componentController) this.componentController.cancel();
         if (this.renderer) {
-            this.renderer.updateDrawableVisible(this.drawableID, this.visible);
+            this.renderer.updateDrawableVisible(this.drawableID, this.isEffectivelyVisible());
             if (this.componentController) this.componentController.sync();
             if (this.visible) {
                 this.emitVisualChange();
@@ -766,7 +840,7 @@ class RenderedTarget extends Target {
             const {direction, scale} = this._getRenderedDirectionAndScale();
             this.renderer.updateDrawablePosition(this.drawableID, [this.x, this.y]);
             this.renderer.updateDrawableDirectionScale(this.drawableID, direction, scale);
-            this.renderer.updateDrawableVisible(this.drawableID, this.visible);
+            this.renderer.updateDrawableVisible(this.drawableID, this.isEffectivelyVisible());
 
             const costume = this.getCostumes()[this.currentCostume];
             this.renderer.updateDrawableSkinId(this.drawableID, costume.skinId);
@@ -940,6 +1014,7 @@ class RenderedTarget extends Target {
         }
 
         this.runtime.setExecutablePosition(this, Infinity);
+        this.runtime.spriteContainers.refreshExecutableOrder();
     }
 
     /**
@@ -953,6 +1028,7 @@ class RenderedTarget extends Target {
         }
 
         this.runtime.setExecutablePosition(this, -Infinity);
+        this.runtime.spriteContainers.refreshExecutableOrder();
     }
 
     /**
@@ -965,6 +1041,7 @@ class RenderedTarget extends Target {
         }
 
         this.runtime.moveExecutable(this, nLayers);
+        this.runtime.spriteContainers.refreshExecutableOrder();
     }
 
     /**
@@ -977,6 +1054,7 @@ class RenderedTarget extends Target {
         }
 
         this.runtime.moveExecutable(this, -nLayers);
+        this.runtime.spriteContainers.refreshExecutableOrder();
     }
 
     /**
@@ -992,6 +1070,7 @@ class RenderedTarget extends Target {
 
         const executionPosition = this.runtime.executableTargets.indexOf(other);
         this.runtime.setExecutablePosition(this, executionPosition);
+        this.runtime.spriteContainers.refreshExecutableOrder();
     }
 
     /**
@@ -1014,10 +1093,12 @@ class RenderedTarget extends Target {
         const bounds = this.getBounds();
         if (!bounds) return;
         // Adjust the known bounds to the target position.
-        bounds.left += (newX - this.x);
-        bounds.right += (newX - this.x);
-        bounds.top += (newY - this.y);
-        bounds.bottom += (newY - this.y);
+        const current = this.getWorldPosition();
+        const next = this.localToWorld(newX, newY);
+        bounds.left += next[0] - current[0];
+        bounds.right += next[0] - current[0];
+        bounds.top += next[1] - current[1];
+        bounds.bottom += next[1] - current[1];
         // Find how far we need to move the target position.
         let dx = 0;
         let dy = 0;
@@ -1033,42 +1114,61 @@ class RenderedTarget extends Target {
         if (bounds.bottom < fence.bottom) {
             dy += fence.bottom - bounds.bottom;
         }
-        return [newX + dx, newY + dy];
+        return this.worldToLocal(next[0] + dx, next[1] + dy);
     }
 
     /**
      * Make a clone, copying any run-time properties.
      * If we've hit the global clone limit, returns null.
+     * @param {object} options Optional container membership and deferred hat startup.
      * @return {RenderedTarget} New clone.
      */
-    makeClone () {
+    makeClone (options = {}) {
         if (!this.runtime.clonesAvailable() || this.isStage) {
             return null; // Hit max clone limit, or this is the stage.
         }
         this.runtime.changeCloneCounter(1);
-        const newClone = this.sprite.createClone();
-        // Copy all properties.
-        newClone.x = this.x;
-        newClone.y = this.y;
-        newClone.direction = this.direction;
-        newClone.draggable = this.draggable;
-        newClone.visible = this.visible;
-        newClone.size = this.size;
-        newClone.currentCostume = this.currentCostume;
-        newClone.rotationStyle = this.rotationStyle;
-        newClone.effects = Clone.simple(this.effects);
-        newClone.variables = this.duplicateVariables();
-        newClone._edgeActivatedHatValues = Clone.simple(this._edgeActivatedHatValues);
-        if (this.componentController) {
-            newClone.component = ComponentModel.copy(this.component);
-            newClone.componentController = new ComponentController(newClone);
-        } else if (this.component) {
-            newClone.component = ComponentModel.copy(this.component);
-            newClone.componentError = this.componentError;
+        const cloneIndex = this.sprite.clones.length;
+        let newClone;
+        try {
+            newClone = this.sprite.createClone();
+            const paths = options.containerPaths || this._containerClonePaths;
+            newClone._containerClonePaths = paths ? paths.slice() : null;
+            // Copy all properties.
+            newClone.x = this.x;
+            newClone.y = this.y;
+            newClone.direction = this.direction;
+            newClone.draggable = this.draggable;
+            newClone.visible = this.visible;
+            newClone.size = this.size;
+            newClone.currentCostume = this.currentCostume;
+            newClone.rotationStyle = this.rotationStyle;
+            newClone.effects = Clone.simple(this.effects);
+            newClone.variables = this.duplicateVariables();
+            newClone._edgeActivatedHatValues = Clone.simple(this._edgeActivatedHatValues);
+            if (this.componentController) {
+                newClone.component = ComponentModel.copy(this.component);
+                newClone.componentController = new ComponentController(newClone);
+            } else if (this.component) {
+                newClone.component = ComponentModel.copy(this.component);
+                newClone.componentError = this.componentError;
+            }
+            newClone.initDrawable(StageLayering.SPRITE_LAYER, options.startHats !== false);
+            newClone.updateAllDrawableProperties();
+            return newClone;
+        } catch (error) {
+            // createClone registers the member before firing targetWasCreated, which can throw
+            // before it returns. Clean up that member even if newClone was never assigned.
+            const failedClone = newClone || this.sprite.clones[cloneIndex];
+            if (failedClone) {
+                if (this.runtime.targets.includes(failedClone)) this.runtime.disposeTarget(failedClone);
+                else failedClone.dispose();
+                this.runtime.spriteContainers.sync();
+            } else {
+                this.runtime.changeCloneCounter(-1);
+            }
+            throw error;
         }
-        newClone.initDrawable(StageLayering.SPRITE_LAYER);
-        newClone.updateAllDrawableProperties();
-        return newClone;
     }
 
     /**

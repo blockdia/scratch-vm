@@ -59,6 +59,7 @@ class ComponentController {
 
     localPoint (x, y) {
         const target = this.target;
+        [x, y] = target.worldToLocal(x, y);
         const {direction, scale} = target._getRenderedDirectionAndScale();
         const angle = (90 - direction) * Math.PI / 180;
         const dx = x - target.x;
@@ -105,7 +106,7 @@ class ComponentController {
                 target.y + (px * Math.sin(angle)) + (py * Math.cos(angle))]);
             target.renderer.updateDrawableDirectionScale(id, direction, scale);
             target.renderer.updateDrawableClipPlane(id, clip);
-            target.renderer.updateDrawableVisible(id, target.visible && shown);
+            target.renderer.updateDrawableVisible(id, target.isEffectivelyVisible() && shown);
             for (const effect of Object.keys(target.effects)) {
                 target.renderer.updateDrawableEffect(id, effect, target.effects[effect]);
             }
@@ -138,7 +139,8 @@ class ComponentController {
     pointer (data, x, y) {
         const target = this.target;
         const config = target.component;
-        if (!target.visible || target.dragging || config.properties.disabled || data.cancelled || data.wasDragged) {
+        if (!target.isEffectivelyVisible() || target.dragging || config.properties.disabled ||
+            data.cancelled || data.wasDragged) {
             this.cancel();
             return;
         }
