@@ -46,6 +46,7 @@ class Containers {
                     blockType: BlockType.COMMAND,
                     text: text('setRotationStyle', 'set rotation style of container [CONTAINER] to [STYLE]'),
                     arguments: {CONTAINER: container, STYLE: {type: ArgumentType.STRING, menu: 'rotationStyles'}}},
+                '---',
                 {opcode: 'worldProperty',
                     blockType: BlockType.REPORTER,
                     text: text('worldProperty', '[PROPERTY] of [TARGET] on stage'),
