@@ -89,14 +89,15 @@ test('bounded container effects match sprite blocks for infinite and invalid num
 test('localized container menus preserve the GUI message dictionary', async t => {
     const {vm, add, extension} = setup();
     const previousLocale = formatMessage.setup();
-    const messages = {'containers.containingContainer': '所在容器'};
+    const messages = {'containers.containingContainer': '所在容器', 'containers.innermostContainer': '最内层'};
     try {
         const target = add('A//one');
         vm.setSpriteFolderContainer('A', true);
         vm.runtime.setEditingTarget(target);
         await vm.setLocale('zh-cn', messages);
         t.equal(extension.getContainers()[0].text, '所在容器');
-        t.same(messages, {'containers.containingContainer': '所在容器'},
+        t.equal(extension.getAncestorContainers()[0].text, '最内层');
+        t.same(messages, {'containers.containingContainer': '所在容器', 'containers.innermostContainer': '最内层'},
             'format-message must not replace shared strings with its cached message objects');
     } finally {
         formatMessage.setup(previousLocale);
@@ -141,6 +142,7 @@ test('menus replace the current name with a relative choice and rename only name
     for (const [id, opcode, field, value] of [
         ['named', 'containers_menu_containers', 'containers', 'A//N'],
         ['self', 'containers_menu_containers', 'containers', ContainerOption.SELF],
+        ['delete', 'containers_menu_ancestorContainers', 'ancestorContainers', 'A'],
         ['literal', 'text', 'TEXT', 'A//N']
     ]) {
         target.blocks.createBlock({id,
@@ -157,8 +159,39 @@ test('menus replace the current name with a relative choice and rename only name
     vm.renameSprite(target.id, 'B//N//one');
     containers.endUpdate();
     t.equal(target.blocks.getBlock('named').fields.containers.value, 'B//N');
+    t.equal(target.blocks.getBlock('delete').fields.ancestorContainers.value, 'B');
     t.equal(target.blocks.getBlock('self').fields.containers.value, ContainerOption.SELF);
     t.equal(target.blocks.getBlock('literal').fields.TEXT.value, 'A//N');
+    vm.quit();
+    t.end();
+});
+
+test('delete menus replace the innermost name and only list outer ancestors', t => {
+    const {vm, add, extension, containers} = setup();
+    const target = add('A//N//Folder//one');
+    const outside = add('outside');
+    const stage = add('Stage');
+    stage.isStage = true;
+    add('B//two');
+    const root = add('A//root');
+    for (const path of ['A', 'A//N', 'B']) vm.setSpriteFolderContainer(path, true);
+    vm.runtime.setEditingTarget(root);
+    t.same(extension.getAncestorContainers().map(item => item.value), [ContainerOption.SELF],
+        'a single containing container is not duplicated by name');
+    vm.runtime.setEditingTarget(target);
+    t.same(extension.getAncestorContainers().map(item => item.value), [ContainerOption.SELF, 'A']);
+    t.same(extension.getContainers().map(item => item.value), [ContainerOption.SELF, 'A', 'B'],
+        'ordinary operations still address unrelated containers');
+    const clone = containers.createClone('A')[0];
+    vm.runtime.setEditingTarget(clone);
+    t.same(extension.getAncestorContainers().map(item => item.value), [ContainerOption.SELF, 'A']);
+    for (const editing of [outside, stage, null]) {
+        vm.runtime.setEditingTarget(editing);
+        t.same(extension.getAncestorContainers().map(item => item.value), [ContainerOption.SELF],
+            'unrelated containers never become deletion choices');
+    }
+    t.equal(extension.getInfo().blocks.find(block => block.opcode === 'deleteClone')
+        .arguments.CONTAINER.menu, 'ancestorContainers');
     vm.quit();
     t.end();
 });
@@ -569,34 +602,36 @@ test('nested instance deletion preserves its parent, siblings and source, includ
 test('named clone deletion resolves only the executing member chain across nested independent instances', t => {
     for (const selection of ['Outer', 'Outer//Inner', ContainerOption.SELF]) {
         for (const independentInner of [false, true]) {
-            const {vm, add, extension, containers} = setup();
-            const root = add('Outer//one');
-            const nested = add('Outer//Inner//two');
-            vm.setSpriteFolderContainer('Outer', true);
-            vm.setSpriteFolderContainer('Outer//Inner', true);
-            const [rootClone, nestedClone] = containers.createClone('Outer');
-            const siblings = containers.createClone('Outer');
-            const innerID = containers.getContainingContainer(nestedClone).id;
-            const extraInner = containers.createClone(innerID);
-            const member = independentInner ? extraInner[0] : nestedClone;
-            const extraMember = member.makeClone();
-            vm.runtime.addTarget(extraMember);
-            const selectedID = containers.getContainingContainer(member).id;
-            extension.deleteClone({CONTAINER: selection}, {target: extraMember});
-            const label = `${selection}, independent inner: ${independentInner}`;
-            t.notOk(vm.runtime.targets.includes(member), `${label}: selected inner member deleted`);
-            t.notOk(vm.runtime.targets.includes(extraMember), `${label}: ordinary clone member deleted`);
-            t.notOk(containers.get(selectedID), `${label}: selected inner instance removed`);
-            t.equal(vm.runtime.targets.includes(rootClone), selection !== 'Outer', `${label}: parent membership`);
-            const otherInner = independentInner ? nestedClone : extraInner[0];
-            t.equal(vm.runtime.targets.includes(otherInner), selection !== 'Outer',
-                `${label}: sibling inner membership`);
-            t.ok(siblings.every(target => vm.runtime.targets.includes(target)),
-                `${label}: other outer instance survives`);
-            t.ok(vm.runtime.targets.includes(root) && vm.runtime.targets.includes(nested),
-                `${label}: originals survive`);
-            t.equal(vm.runtime._cloneCounter, selection === 'Outer' ? 2 : 4, `${label}: exact subtree removed`);
-            vm.quit();
+            for (const spriteClone of [false, true]) {
+                const {vm, add, extension, containers} = setup();
+                const root = add('Outer//one');
+                const nested = add('Outer//Inner//two');
+                vm.setSpriteFolderContainer('Outer', true);
+                vm.setSpriteFolderContainer('Outer//Inner', true);
+                const [rootClone, nestedClone] = containers.createClone('Outer');
+                const siblings = containers.createClone('Outer');
+                const innerID = containers.getContainingContainer(nestedClone).id;
+                const extraInner = containers.createClone(innerID);
+                const member = independentInner ? extraInner[0] : nestedClone;
+                const extraMember = spriteClone ? member.makeClone() : member;
+                if (spriteClone) vm.runtime.addTarget(extraMember);
+                const selectedID = containers.getContainingContainer(member).id;
+                extension.deleteClone({CONTAINER: selection}, {target: extraMember});
+                const label = `${selection}, independent inner: ${independentInner}, sprite clone: ${spriteClone}`;
+                t.notOk(vm.runtime.targets.includes(member), `${label}: selected inner member deleted`);
+                t.notOk(vm.runtime.targets.includes(extraMember), `${label}: ordinary clone member deleted`);
+                t.notOk(containers.get(selectedID), `${label}: selected inner instance removed`);
+                t.equal(vm.runtime.targets.includes(rootClone), selection !== 'Outer', `${label}: parent membership`);
+                const otherInner = independentInner ? nestedClone : extraInner[0];
+                t.equal(vm.runtime.targets.includes(otherInner), selection !== 'Outer',
+                    `${label}: sibling inner membership`);
+                t.ok(siblings.every(target => vm.runtime.targets.includes(target)),
+                    `${label}: other outer instance survives`);
+                t.ok(vm.runtime.targets.includes(root) && vm.runtime.targets.includes(nested),
+                    `${label}: originals survive`);
+                t.equal(vm.runtime._cloneCounter, selection === 'Outer' ? 2 : 4, `${label}: exact subtree removed`);
+                vm.quit();
+            }
         }
     }
     t.end();
