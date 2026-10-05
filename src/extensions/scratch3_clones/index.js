@@ -68,10 +68,7 @@ class Clones {
     }
 
     getOriginalTargets () {
-        // Include the current sprite by name so a clone can explicitly select its own original.
-        const items = this.runtime.targets.filter(target => target.isOriginal && !target.isStage)
-            .map(target => ({text: target.getName(), value: target.getName()}));
-        return items.length ? items : [{text: '', value: ''}];
+        return this.getTargets();
     }
 
     id (args, util) {

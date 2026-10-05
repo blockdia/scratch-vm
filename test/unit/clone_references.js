@@ -255,7 +255,7 @@ test('original IDs follow names; duplication, deletion and name reuse update the
     const cloneId = create('boss');
     const clone = runtime.resolveTargetReference(cloneId);
     t.equal(extension.targetId({TARGET: 'Enemy'}, {target: clone}), id, 'a name always selects the original');
-    t.equal(extension.targetId({TARGET: '_myself_'}, {target: clone}), id, 'legacy self selects the original');
+    t.equal(extension.targetId({TARGET: '_myself_'}, {target: clone}), id, 'myself selects the clone original');
     t.equal(extension.targetId({TARGET: id}, {target: clone}), id);
     t.equal(extension.targetId({TARGET: cloneId}, {target: source}), id, 'even a clone reference reports its original');
     t.equal(extension.targetId({TARGET: 'missing'}, {target: source}), '');
@@ -465,20 +465,22 @@ test('creation results are published before hats and newer creations are never o
 });
 
 
-test('creation menus match native clone choices while original menus keep explicit sprite names', t => {
+test('creation and original ID menus replace the current sprite with myself', t => {
     const {vm, runtime, source, extension, add, create} = setup();
     const stage = runtime.getTargetForStage();
     const values = menu => menu.map(item => item.value);
     runtime.setEditingTarget(source);
     t.same(values(extension.getTargets()), ['_myself_']);
-    t.same(values(extension.getOriginalTargets()), ['Enemy']);
+    t.same(values(extension.getOriginalTargets()), ['_myself_']);
+    t.equal(extension.getOriginalTargets()[0].text, 'myself');
     const other = add('Other');
     create('boss');
     runtime.setEditingTarget(source);
     t.same(values(extension.getTargets()), ['_myself_', 'Other'], 'clones do not appear and self replaces Enemy');
-    t.same(values(extension.getOriginalTargets()), ['Enemy', 'Other'], 'own original stays selectable');
+    t.same(values(extension.getOriginalTargets()), ['_myself_', 'Other'], 'self replaces the current original');
     runtime.setEditingTarget(other);
     t.same(values(extension.getTargets()), ['_myself_', 'Enemy']);
+    t.same(values(extension.getOriginalTargets()), ['_myself_', 'Enemy'], 'menu follows the editing target');
     runtime.setEditingTarget(stage);
     t.same(values(extension.getTargets()), ['Enemy', 'Other'], 'no myself on stage');
     t.same(values(extension.getOriginalTargets()), ['Enemy', 'Other']);
