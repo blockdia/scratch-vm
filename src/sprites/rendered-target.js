@@ -258,6 +258,12 @@ class RenderedTarget extends Target {
         return this.localToWorld(this.x, this.y);
     }
 
+    setWorldPosition (x, y) {
+        if (this.isStage || !Number.isFinite(x) || !Number.isFinite(y)) return;
+        const position = this.worldToLocal(x, y);
+        if (position.every(Number.isFinite)) this.setXY(...position);
+    }
+
     // Transform the movement heading, independently of this sprite's costume rotation style.
     getWorldDirection () {
         const matrix = this._containerTransform || ContainerTransform.identity;

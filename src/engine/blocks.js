@@ -1150,8 +1150,11 @@ class Blocks {
     // Apply a folder rename simultaneously so one replacement cannot cascade into another.
     updateContainerReferences (renamedPaths) {
         for (const block of Object.values(this._blocks)) {
-            if (!['containers_menu_containers', 'containers_menu_ancestorContainers'].includes(block.opcode)) continue;
-            const field = block.fields.containers || block.fields.ancestorContainers;
+            if (!['containers_menu_containers', 'containers_menu_ancestorContainers',
+                'containers_menu_coordinateSpaces']
+                .includes(block.opcode)) continue;
+            const field = block.fields.containers || block.fields.ancestorContainers ||
+                block.fields.coordinateSpaces;
             if (field && field.value !== ContainerOption.SELF && renamedPaths.has(field.value)) {
                 field.value = renamedPaths.get(field.value);
             }
@@ -1245,7 +1248,7 @@ class Blocks {
         }
         if (block.opcode === 'components_menu_numericTargets') return block.fields.numericTargets;
         if (block.opcode === 'components_menu_toggleTargets') return block.fields.toggleTargets;
-        if (block.opcode === 'containers_menu_sprites') return block.fields.sprites;
+        if (block.opcode === 'containers_menu_positionTargets') return block.fields.positionTargets;
         const spriteMenuNames = ['TOWARDS', 'TO', 'OBJECT', 'VIDEOONMENU2',
             'DISTANCETOMENU', 'TOUCHINGOBJECTMENU', 'CLONE_OPTION'];
         for (let i = 0; i < spriteMenuNames.length; i++) {
