@@ -107,8 +107,7 @@ class Components {
         return names.map(name => ({text: text(name, name), value: name}));
     }
     _targetByName (name) {
-        return this.runtime && this.runtime.targets.find(target => target.isOriginal && !target.isStage &&
-            target.getName() === name);
+        return this.runtime && this.runtime.resolveTargetReference(name);
     }
     _target (name, util) {
         name = Cast.toString(name);

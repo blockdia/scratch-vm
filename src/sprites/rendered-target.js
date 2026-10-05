@@ -70,6 +70,8 @@ class RenderedTarget extends Target {
          * @type {boolean}
          */
         this.isOriginal = true;
+        // Public instance reference, separate from the internal Target.id.
+        this.publicId = '';
 
         /**
          * Whether this rendered target represents the Scratch stage.
@@ -957,20 +959,21 @@ class RenderedTarget extends Target {
     }
 
     /**
-     * Return whether touching any of a named sprite's clones.
-     * @param {string} spriteName Name of the sprite.
-     * @return {boolean} True iff touching a clone of the sprite.
+     * Return whether touching a named sprite (including clones) or an exact public instance reference.
+     * @param {string} spriteName Sprite name or public ID.
+     * @return {boolean} True iff touching one of the selected instances.
      */
     isTouchingSprite (spriteName) {
         spriteName = Cast.toString(spriteName);
-        const firstClone = this.runtime.getSpriteTargetByName(spriteName);
+        const firstClone = this.runtime.resolveTargetReference(spriteName);
         if (!firstClone || !this.renderer) {
             return false;
         }
         // Filter out dragging targets. This means a sprite that is being dragged
         // can detect other sprites using touching <sprite>, but cannot be detected
         // by other sprites while it is being dragged. This matches Scratch 2.0 behavior.
-        const drawableCandidates = firstClone.sprite.clones.filter(clone => !clone.dragging && clone !== this)
+        const candidates = firstClone.publicId === spriteName ? [firstClone] : firstClone.sprite.clones;
+        const drawableCandidates = candidates.filter(clone => !clone.dragging && clone !== this)
             .reduce((ids, clone) => ids.concat(clone.getDrawableIDs(true)), []);
         return this.getDrawableIDs(true).some(id => this.renderer.isTouchingDrawables(id, drawableCandidates));
     }
@@ -1137,7 +1140,11 @@ class RenderedTarget extends Target {
         const cloneIndex = this.sprite.clones.length;
         let newClone;
         try {
-            newClone = this.sprite.createClone();
+            newClone = this.sprite.createClone(null, options.cloneId);
+            if (!newClone) {
+                this.runtime.changeCloneCounter(-1);
+                return null;
+            }
             const paths = options.containerPaths || this._containerClonePaths;
             newClone._containerClonePaths = paths ? paths.slice() : null;
             // Copy all properties.
@@ -1306,6 +1313,7 @@ class RenderedTarget extends Target {
      * Dispose, destroying any run-time properties.
      */
     dispose () {
+        this.runtime.targetReferences.release(this);
         if (!this.isOriginal) {
             this.runtime.changeCloneCounter(-1);
         }

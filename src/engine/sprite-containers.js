@@ -3,6 +3,8 @@ const uid = require('../util/uid');
 const Transform = require('../util/container-transform');
 const Effects = require('../util/container-effects');
 const ContainerOption = require('../util/container-option');
+const TargetReferences = require('./target-references');
+const Cast = require('../util/cast');
 
 const ancestors = name => {
     const parts = String(name).split('//');
@@ -18,6 +20,8 @@ class SpriteContainers {
         this.definitions = new Map();
         // Runtime-only container instances. Their IDs never enter project metadata.
         this.cloneDefinitions = new Map();
+        this.cloneReferences = new Map();
+        this.nextCloneId = 1;
         this.depth = 0;
         this.syncing = false;
         this.active = false;
@@ -32,6 +36,71 @@ class SpriteContainers {
             ...(value.transform ? {transform: {...value.transform}} : {})} : null;
     }
 
+    _hasOriginal (path) {
+        return this.definitions.has(path) && this.runtime.targets.some(target => target.isOriginal &&
+            !target.isStage && ancestors(target.getName()).includes(path));
+    }
+
+    // Public inputs are resolved here; internal renderer keys never become public references.
+    resolveReference (value, target) {
+        value = Cast.toString(value);
+        if (value === ContainerOption.SELF) {
+            const current = this.getContainingContainer(target);
+            return current ? this.resolveReference(current.publicId) : null;
+        }
+        if (value.startsWith(ContainerOption.CLONE_PREFIX)) {
+            const id = this.cloneReferences.get(value);
+            const instance = this.cloneDefinitions.get(id);
+            return instance && instance.active ? id : null;
+        }
+        if (value.startsWith(ContainerOption.ORIGINAL_PREFIX)) {
+            const path = value.slice(ContainerOption.ORIGINAL_PREFIX.length);
+            return this._hasOriginal(path) ? path : null;
+        }
+        if (TargetReferences.isReference(value)) return null;
+        return this._hasOriginal(value) ? value : null;
+    }
+
+    getPublicId (id) {
+        const instance = this.cloneDefinitions.get(id);
+        return instance ? instance.publicId : this.definitions.has(id) ? ContainerOption.ORIGINAL_PREFIX + id : '';
+    }
+
+    getOriginalId (id) {
+        const instance = this.cloneDefinitions.get(id);
+        const path = instance ? instance.path : id;
+        return this._hasOriginal(path) ? ContainerOption.ORIGINAL_PREFIX + path : '';
+    }
+
+    getAncestry (id) {
+        if (this.definitions.has(id)) {
+            return ancestors(`${id}//_`).filter(path => this.definitions.has(path));
+        }
+        if (this.cloneDefinitions.has(id)) {
+            const member = this.runtime.targets.find(target =>
+                target._containerClonePaths && target._containerClonePaths.includes(id));
+            if (member) {
+                const chain = this.getTargetContainers(member).map(container => container.id);
+                return chain.slice(0, chain.indexOf(id) + 1);
+            }
+        }
+        return [];
+    }
+
+    getParentId (id) {
+        const chain = this.getAncestry(id);
+        return chain.length > 1 ? this.getPublicId(chain[chain.length - 2]) : '';
+    }
+
+    _reserveCloneReference (requestedId = '') {
+        const suffix = Cast.toString(requestedId);
+        if (suffix.trim() !== suffix || /^\d+$/.test(suffix) || TargetReferences.isReference(suffix)) return null;
+        const reference = ContainerOption.CLONE_PREFIX + (suffix || this.nextCloneId++);
+        if (this.cloneReferences.has(reference)) return null;
+        this.cloneReferences.set(reference, null);
+        return reference;
+    }
+
     serialize () {
         const folders = new Set(this.runtime.targets.filter(target => target.isOriginal && !target.isStage)
             .reduce((paths, target) => paths.concat(ancestors(target.getName())), []));
@@ -42,6 +111,9 @@ class SpriteContainers {
     load (data) {
         this.definitions.clear();
         this.cloneDefinitions.clear();
+        this.cloneReferences.clear();
+        this.nextCloneId = 1;
+        this.runtime.lastContainerCloneId = '';
         if (Array.isArray(data)) {
             for (const entry of data) {
                 if (!entry || typeof entry.path !== 'string' || !entry.path ||
@@ -56,6 +128,7 @@ class SpriteContainers {
     }
 
     set (path, enabled) {
+        if (enabled && TargetReferences.isReference(path)) return false;
         if (!this.runtime.targets.some(target => target.isOriginal && !target.isStage &&
             ancestors(target.getName()).includes(path))) return false;
         if (enabled) {
@@ -168,9 +241,9 @@ class SpriteContainers {
         if (path === ContainerOption.SELF) {
             chain = target ? this.getTargetContainers(target) : [];
         } else {
-            if (!this.definitions.has(path)) return null;
-            chain = ancestors(`${path}//_`).map(id => this.definitions.get(id))
-                .filter(Boolean);
+            const id = this.resolveReference(path);
+            if (id === null) return null;
+            chain = this.getAncestry(id).map(key => this.definitions.get(key) || this.cloneDefinitions.get(key));
         }
         return chain.reduce((parent, container) =>
             Transform.multiply(parent, Transform.matrix(container.transform)), Transform.identity);
@@ -213,6 +286,7 @@ class SpriteContainers {
             const instance = this.cloneDefinitions.get(id);
             const definition = instance || this.definitions.get(id);
             return definition ? {id,
+                publicId: this.getPublicId(id),
                 path: instance ? instance.path : id,
                 visible: definition.visible,
                 ...(definition.effects ? {effects: {...definition.effects}} : {}),
@@ -223,55 +297,85 @@ class SpriteContainers {
     }
 
     /** Snapshot every live member of the selected container, including existing clones and nested instances. */
-    createClone (path) {
-        if (!this.definitions.has(path) && !this.cloneDefinitions.has(path)) return [];
+    createClone (path, options = {}) {
         const runtime = this.runtime;
+        runtime.lastCloneId = '';
+        runtime.lastContainerCloneId = '';
+        if (!this.definitions.has(path) && !this.cloneDefinitions.has(path)) return [];
         const sources = runtime.targets.filter(target => !target.isStage &&
             this.getTargetContainers(target).some(container => container.id === path));
         if (!sources.length || !runtime.clonesAvailable(sources.length)) return [];
         const renderer = runtime.renderer;
         if (renderer) sources.sort((a, b) => a.getLayerOrder() - b.getLayerOrder());
+        const rootReference = this._reserveCloneReference(options.cloneId);
+        if (!rootReference) return [];
+        const references = [rootReference];
         const instances = new Map();
         const clones = [];
-        this.beginUpdate();
-        try {
-            for (const source of sources) {
-                const membership = this.getTargetContainers(source);
-                const root = membership.findIndex(container => container.id === path);
-                const paths = membership.map((container, index) => {
-                    if (index < root) return container.id;
-                    if (!instances.has(container.id)) {
-                        const id = `_container_clone_:${uid()}`;
-                        instances.set(container.id, id);
-                        this.cloneDefinitions.set(id, {path: container.path,
-                            visible: container.visible,
-                            effects: container.effects ? {...container.effects} : null,
-                            clip: container.clip ? {...container.clip} : null,
-                            transform: container.transform ? {...container.transform} : null});
-                    }
-                    return instances.get(container.id);
-                });
-                const clone = source.makeClone({containerPaths: paths, startHats: false});
-                if (!clone) {
-                    clones.forEach(target => runtime.disposeTarget(target));
-                    return [];
-                }
-                clones.push(clone);
-                runtime.addTarget(clone);
-            }
-        } catch (error) {
+        const rollback = () => {
             clones.forEach(target => runtime.disposeTarget(target));
+            instances.forEach(id => this.cloneDefinitions.delete(id));
+            references.forEach(reference => this.cloneReferences.delete(reference));
+            runtime.lastCloneId = '';
+            runtime.lastContainerCloneId = '';
+        };
+        try {
+            this.beginUpdate();
+            try {
+                for (const source of sources) {
+                    const membership = this.getTargetContainers(source);
+                    const root = membership.findIndex(container => container.id === path);
+                    const paths = membership.map((container, index) => {
+                        if (index < root) return container.id;
+                        if (!instances.has(container.id)) {
+                            const id = `_container_clone_:${uid()}`;
+                            const publicId = container.id === path ? rootReference : this._reserveCloneReference();
+                            if (container.id !== path) references.push(publicId);
+                            instances.set(container.id, id);
+                            this.cloneReferences.set(publicId, id);
+                            this.cloneDefinitions.set(id, {path: container.path,
+                                publicId,
+                                active: false,
+                                visible: container.visible,
+                                effects: container.effects ? {...container.effects} : null,
+                                clip: container.clip ? {...container.clip} : null,
+                                transform: container.transform ? {...container.transform} : null});
+                        }
+                        return instances.get(container.id);
+                    });
+                    const clone = source.makeClone({containerPaths: paths, startHats: false});
+                    if (!clone) {
+                        rollback();
+                        return [];
+                    }
+                    clones.push(clone);
+                    runtime.addTarget(clone);
+                }
+            } finally {
+                this.endUpdate();
+            }
+            // New instances are siblings of the source container, immediately behind it.
+            if (renderer) {
+                const order = sources.reduce((minimum, target) => Math.min(minimum, target.getLayerOrder()), Infinity);
+                this.setOrder(instances.get(path), order === 0 ? -Infinity : order);
+            }
+            // Publish the complete subtree and its root result before any clone-start script runs.
+            instances.forEach(id => {
+                this.cloneDefinitions.get(id).active = true;
+            });
+            runtime.lastContainerCloneId = rootReference;
+        } catch (error) {
+            this.beginUpdate();
+            try {
+                rollback();
+            } finally {
+                this.endUpdate();
+            }
             throw error;
-        } finally {
-            this.endUpdate();
         }
-        // New instances are siblings of the source container, immediately behind it.
-        if (renderer) {
-            const order = sources.reduce((minimum, target) => Math.min(minimum, target.getLayerOrder()), Infinity);
-            this.setOrder(instances.get(path), order === 0 ? -Infinity : order);
+        if (options.startHats !== false) {
+            clones.forEach(target => runtime.startHats('control_start_as_clone', null, target));
         }
-        // Hats must see every member, its copied state and its final membership.
-        clones.forEach(target => runtime.startHats('control_start_as_clone', null, target));
         return clones;
     }
 
@@ -386,7 +490,10 @@ class SpriteContainers {
                 memberships.push({containers, drawables});
             }
             for (const id of this.cloneDefinitions.keys()) {
-                if (!used.has(id)) this.cloneDefinitions.delete(id);
+                if (!used.has(id)) {
+                    this.cloneReferences.delete(this.cloneDefinitions.get(id).publicId);
+                    this.cloneDefinitions.delete(id);
+                }
             }
             const renderer = this.runtime.renderer;
             if (renderer) {

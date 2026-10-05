@@ -209,7 +209,7 @@ class Scratch3SensingBlocks {
             targetY = util.ioQuery('mouse', 'getScratchY');
         } else {
             args.DISTANCETOMENU = Cast.toString(args.DISTANCETOMENU);
-            const distTarget = this.runtime.getSpriteTargetByName(
+            const distTarget = this.runtime.resolveTargetReference(
                 args.DISTANCETOMENU
             );
             if (!distTarget) return 10000;
@@ -301,7 +301,7 @@ class Scratch3SensingBlocks {
             attrTarget = this.runtime.getTargetForStage();
         } else {
             args.OBJECT = Cast.toString(args.OBJECT);
-            attrTarget = this.runtime.getSpriteTargetByName(args.OBJECT);
+            attrTarget = this.runtime.resolveTargetReference(args.OBJECT);
         }
 
         // attrTarget can be undefined if the target does not exist

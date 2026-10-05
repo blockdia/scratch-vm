@@ -939,7 +939,7 @@ class JSGenerator {
             throw new Error(`JS: Object references must be strings!`);
         }
         if (input.isConstant('_stage_')) return 'stage';
-        return this.evaluateOnce(`runtime.getSpriteTargetByName(${this.descendInput(input)})`);
+        return this.evaluateOnce(`runtime.resolveTargetReference(${this.descendInput(input)})`);
     }
 
     /**

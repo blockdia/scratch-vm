@@ -104,11 +104,13 @@ class Sprite {
      * Create a clone of this sprite.
      * @param {string=} optLayerGroup Optional layer group the clone's drawable should be added to
      * Defaults to the sprite layer group
-     * @returns {!RenderedTarget} Newly created clone.
+     * @param {string=} requestedId Custom public ID suffix for a runtime clone; empty allocates an ID.
+     * @returns {?RenderedTarget} Newly created clone, or null for an invalid or occupied custom ID.
      */
-    createClone (optLayerGroup) {
+    createClone (optLayerGroup, requestedId) {
         const newClone = new RenderedTarget(this, this.runtime);
         newClone.isOriginal = this.clones.length === 0;
+        if (!newClone.isOriginal && !this.runtime.targetReferences.register(newClone, requestedId)) return null;
         this.clones.push(newClone);
         newClone.initAudio();
         if (newClone.isOriginal) {

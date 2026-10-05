@@ -3,7 +3,7 @@
 
 // Sprite1 script
 (function factoryXYZ(thread) { const target = thread.target; const runtime = target.runtime; const stage = runtime.getTargetForStage();
-const b0 = runtime.getSpriteTargetByName("Sprite1");
+const b0 = runtime.resolveTargetReference("Sprite1");
 return function* genXYZ () {
 runtime.ext_scratch3_looks._say("plan 6", target);
 target.setXY(1e-9, target.y);

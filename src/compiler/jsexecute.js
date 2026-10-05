@@ -395,7 +395,7 @@ runtimeFunctions.distance = `const distance = menu => {
         targetX = thread.target.runtime.ioDevices.mouse.getScratchX();
         targetY = thread.target.runtime.ioDevices.mouse.getScratchY();
     } else {
-        const distTarget = thread.target.runtime.getSpriteTargetByName(menu);
+        const distTarget = thread.target.runtime.resolveTargetReference(menu);
         if (!distTarget) return 10000;
         [targetX, targetY] = distTarget.getWorldPosition();
     }
