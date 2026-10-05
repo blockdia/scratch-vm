@@ -1,4 +1,5 @@
 const Cast = require('../util/cast');
+const ContainerOption = require('../util/container-option');
 
 const SPRITE_PREFIX = '@sprite:';
 const CLONE_PREFIX = '@clone:';
@@ -16,7 +17,8 @@ class TargetReferences {
     }
 
     static isReference (value) {
-        return typeof value === 'string' && (value.startsWith(SPRITE_PREFIX) || value.startsWith(CLONE_PREFIX));
+        return typeof value === 'string' && (value.startsWith(SPRITE_PREFIX) || value.startsWith(CLONE_PREFIX) ||
+            ContainerOption.isReference(value));
     }
 
     register (target, requestedId = '') {

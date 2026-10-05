@@ -124,10 +124,47 @@ class Containers {
                         LAYERS: number(1),
                         DIRECTION: {type: ArgumentType.STRING, menu: 'layerDirections'}}},
                 '---',
+                {opcode: 'id',
+                    blockType: BlockType.REPORTER,
+                    disableMonitor: true,
+                    text: text('id', 'ID of [CONTAINER]'),
+                    arguments: {CONTAINER: container}},
+                {opcode: 'originalId',
+                    blockType: BlockType.REPORTER,
+                    disableMonitor: true,
+                    text: text('originalId', 'original ID of [CONTAINER]'),
+                    arguments: {CONTAINER: container}},
+                {opcode: 'parentId',
+                    blockType: BlockType.REPORTER,
+                    disableMonitor: true,
+                    text: text('parentId', 'parent container ID of [CONTAINER]'),
+                    arguments: {CONTAINER: container}},
+                {opcode: 'cloneId',
+                    blockType: BlockType.REPORTER,
+                    disableMonitor: true,
+                    text: text('cloneId', '@container-clone: [ID]'),
+                    arguments: {ID: {type: ArgumentType.STRING, defaultValue: 'boss'}}},
+                {opcode: 'exists',
+                    blockType: BlockType.BOOLEAN,
+                    disableMonitor: true,
+                    text: text('exists', 'container ID [ID] exists?'),
+                    arguments: {ID: {type: ArgumentType.STRING, defaultValue: '@container-clone:boss'}}},
+                '---',
+                {opcode: 'lastId',
+                    blockType: BlockType.REPORTER,
+                    text: text('lastId', 'last created container clone ID')},
                 {opcode: 'createClone',
                     blockType: BlockType.COMMAND,
                     text: text('createClone', 'create clone of [CONTAINER]'),
                     arguments: {CONTAINER: container}},
+                {opcode: 'createWithId',
+                    blockType: BlockType.COMMAND,
+                    text: text('createWithId', 'create clone of [CONTAINER] with ID @container-clone: [ID]'),
+                    arguments: {CONTAINER: container, ID: {type: ArgumentType.STRING, defaultValue: 'boss'}}},
+                {opcode: 'deleteById',
+                    blockType: BlockType.COMMAND,
+                    text: text('deleteById', 'delete container clone [ID]'),
+                    arguments: {ID: {type: ArgumentType.STRING, defaultValue: '@container-clone:boss'}}},
                 {opcode: 'deleteClone',
                     blockType: BlockType.COMMAND,
                     isTerminal: true,
@@ -251,14 +288,9 @@ class Containers {
     }
 
     _container (value, util) {
-        value = Cast.toString(value);
         const containers = this.runtime.spriteContainers;
-        if (value === ContainerOption.SELF) {
-            const current = containers.getContainingContainer(util.target);
-            return current ? containers.get(current.id) : null;
-        }
-        // Reporters may supply a plain folder path, just like sprite-name inputs.
-        return containers.get(value);
+        const id = containers.resolveReference(value, util.target);
+        return id === null ? null : containers.get(id);
     }
 
     _setTransform (container, patch) {
@@ -368,9 +400,56 @@ class Containers {
     }
 
     createClone (args, util) {
+        this._createClone(args, util);
+    }
+
+    createWithId (args, util) {
+        this._createClone(args, util, Cast.toString(args.ID));
+    }
+
+    _createClone (args, util, cloneId) {
         this.runtime.lastCloneId = '';
+        this.runtime.lastContainerCloneId = '';
         const container = this._container(args.CONTAINER, util);
-        if (container) this.runtime.spriteContainers.createClone(container.path);
+        if (!container) return;
+        const clones = this.runtime.spriteContainers.createClone(container.path, {cloneId, startHats: false});
+        // Preserve compiler execution context when a clone-start hat runs immediately.
+        clones.forEach(target => (util.startHats ? util.startHats('control_start_as_clone', null, target) :
+            this.runtime.startHats('control_start_as_clone', null, target)));
+    }
+
+    id (args, util) {
+        const containers = this.runtime.spriteContainers;
+        return containers.getPublicId(containers.resolveReference(args.CONTAINER, util.target));
+    }
+
+    originalId (args, util) {
+        const containers = this.runtime.spriteContainers;
+        return containers.getOriginalId(containers.resolveReference(args.CONTAINER, util.target));
+    }
+
+    parentId (args, util) {
+        const containers = this.runtime.spriteContainers;
+        return containers.getParentId(containers.resolveReference(args.CONTAINER, util.target));
+    }
+
+    cloneId (args) {
+        return ContainerOption.CLONE_PREFIX + Cast.toString(args.ID);
+    }
+
+    exists (args) {
+        const id = Cast.toString(args.ID);
+        return ContainerOption.isReference(id) && this.runtime.spriteContainers.resolveReference(id) !== null;
+    }
+
+    lastId () {
+        return this.runtime.lastContainerCloneId;
+    }
+
+    deleteById (args) {
+        const id = Cast.toString(args.ID);
+        const containers = this.runtime.spriteContainers;
+        if (id.startsWith(ContainerOption.CLONE_PREFIX)) containers.deleteClone(containers.resolveReference(id));
     }
 
     deleteClone (args, util) {

@@ -315,6 +315,7 @@ class Runtime extends EventEmitter {
         this.targetReferences = new TargetReferences();
         // Global creation result, available to scripts, monitors and manual reporter evaluation.
         this.lastCloneId = '';
+        this.lastContainerCloneId = '';
 
         /**
          * Flag to emit a targets update at the end of a step. When target data
@@ -2383,6 +2384,7 @@ class Runtime extends EventEmitter {
         this.targets.map(this.disposeTarget, this);
         this.targetReferences.reset();
         this.lastCloneId = '';
+        this.lastContainerCloneId = '';
         this.spriteContainers.load([]);
         this.spriteContainers.sync();
         this.extensionStorage = {};
@@ -2548,6 +2550,7 @@ class Runtime extends EventEmitter {
     greenFlag () {
         this.stopAll();
         this.lastCloneId = '';
+        this.lastContainerCloneId = '';
         this.emit(Runtime.PROJECT_START);
         this.updateCurrentMSecs();
         this.ioDevices.clock.resetProjectTimer();

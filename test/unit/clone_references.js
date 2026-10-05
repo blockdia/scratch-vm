@@ -397,7 +397,8 @@ test('invalid ID suffixes allocate automatic IDs while occupied valid IDs still 
     const {vm, runtime, create} = setup();
     create('boss');
     let next = 1;
-    for (const id of ['', '1', '001', ' boss', 'boss ', '@clone:boss', '@sprite:boss', '   ']) {
+    for (const id of ['', '1', '001', ' boss', 'boss ', '@clone:boss', '@sprite:boss',
+        '@container:boss', '@container-clone:boss', '   ']) {
         t.equal(create(id), `@clone:${next++}`, `automatic allocation for ${JSON.stringify(id)}`);
         t.ok(runtime.resolveTargetReference(runtime.lastCloneId));
     }
