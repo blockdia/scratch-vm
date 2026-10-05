@@ -93,8 +93,8 @@ class SpriteContainers {
     }
 
     _reserveCloneReference (requestedId = '') {
-        let suffix = Cast.toString(requestedId);
-        if (suffix.trim() !== suffix || /^\d+$/.test(suffix) || TargetReferences.isReference(suffix)) suffix = '';
+        const suffix = Cast.toString(requestedId);
+        if (suffix.trim() !== suffix || /^\d+$/.test(suffix) || TargetReferences.isReference(suffix)) return null;
         const reference = ContainerOption.CLONE_PREFIX + (suffix || this.nextCloneId++);
         if (this.cloneReferences.has(reference)) return null;
         this.cloneReferences.set(reference, null);

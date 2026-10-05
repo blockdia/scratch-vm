@@ -393,17 +393,33 @@ test('legacy original-ID names migrate fixed query menus without reinterpreting 
 });
 
 
-test('invalid ID suffixes allocate automatic IDs while occupied valid IDs still fail', t => {
-    const {vm, runtime, create} = setup();
+test('invalid nonempty ID suffixes fail without creating clones or consuming automatic IDs', t => {
+    const {vm, runtime, source, create} = setup();
     create('boss');
-    let next = 1;
-    for (const id of ['', '1', '001', ' boss', 'boss ', '@clone:boss', '@sprite:boss',
-        '@container:boss', '@container-clone:boss', '   ']) {
-        t.equal(create(id), `@clone:${next++}`, `automatic allocation for ${JSON.stringify(id)}`);
-        t.ok(runtime.resolveTargetReference(runtime.lastCloneId));
+    const targets = runtime.targets.map(target => target.id);
+    const clones = source.sprite.clones.map(target => target.id);
+    const references = [...runtime.targetReferences.targets.keys()];
+    const created = [];
+    const hats = [];
+    runtime.on('targetWasCreated', target => created.push(target));
+    runtime.startHats = (opcode, fields, target) => {
+        if (opcode === 'control_start_as_clone') hats.push(target);
+        return [];
+    };
+    for (const id of ['1', '001', 0, 123, ' boss', 'boss ', '\tboss', 'boss\n', '   ', '\t\n',
+        '@clone:boss', '@sprite:boss', '@container:boss', '@container-clone:boss']) {
+        t.equal(create(id), '', `creation fails for ${JSON.stringify(id)}`);
+        t.same(runtime.targets.map(target => target.id), targets, 'no target is installed');
+        t.same(source.sprite.clones.map(target => target.id), clones, 'no clone is retained by the sprite');
+        t.same([...runtime.targetReferences.targets.keys()], references, 'no ID is reserved');
+        t.equal(runtime._cloneCounter, 1, 'failed requests do not consume clone capacity');
+        t.equal(runtime.targetReferences.nextCloneId, 1, 'failed requests do not consume automatic IDs');
     }
     t.equal(create('boss'), '', 'an occupied valid ID does not get replaced or suffixed');
-    t.equal(runtime._cloneCounter, next, 'one custom ID plus successful automatic clones');
+    t.same(created, [], 'failed requests do not emit creation events');
+    t.same(hats, [], 'failed requests do not start clone scripts');
+    t.equal(create(''), '@clone:1', 'an empty suffix still allocates an automatic ID');
+    t.equal(runtime._cloneCounter, 2);
     vm.quit();
     t.end();
 });

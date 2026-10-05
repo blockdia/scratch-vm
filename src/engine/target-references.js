@@ -29,9 +29,9 @@ class TargetReferences {
         } else if (target.isOriginal) {
             reference = SPRITE_PREFIX + target.getName();
         } else {
-            let id = Cast.toString(requestedId);
-            // Invalid suffixes fall back to automatic IDs; occupied valid IDs still fail below.
-            if (id.trim() !== id || /^\d+$/.test(id) || TargetReferences.isReference(id)) id = '';
+            const id = Cast.toString(requestedId);
+            // Only an empty suffix requests an automatic ID; invalid custom IDs fail without allocation.
+            if (id.trim() !== id || /^\d+$/.test(id) || TargetReferences.isReference(id)) return false;
             reference = CLONE_PREFIX + (id || this.nextCloneId++);
         }
         if (this.targets.has(reference) && this.targets.get(reference) !== target) return false;

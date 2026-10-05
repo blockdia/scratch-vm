@@ -105,7 +105,7 @@ class Sprite {
      * @param {string=} optLayerGroup Optional layer group the clone's drawable should be added to
      * Defaults to the sprite layer group
      * @param {string=} requestedId Custom public ID suffix for a runtime clone; empty allocates an ID.
-     * @returns {?RenderedTarget} Newly created clone, or null for an occupied custom ID.
+     * @returns {?RenderedTarget} Newly created clone, or null for an invalid or occupied custom ID.
      */
     createClone (optLayerGroup, requestedId) {
         const newClone = new RenderedTarget(this, this.runtime);

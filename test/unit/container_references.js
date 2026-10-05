@@ -215,12 +215,48 @@ test('last result is global, separate from sprite results and updated before ree
     t.end();
 });
 
-test('automatic IDs never recycle until project reload; invalid suffixes auto-allocate', t => {
+test('invalid nonempty container ID suffixes fail before creating any part of the subtree', t => {
+    const {runtime, containers, body, weapon, create} = setup(t);
+    create('boss');
+    const targets = runtime.targets.map(target => target.id);
+    const bodyClones = body.sprite.clones.map(target => target.id);
+    const weaponClones = weapon.sprite.clones.map(target => target.id);
+    const references = [...containers.cloneReferences.keys()];
+    const definitions = [...containers.cloneDefinitions.keys()];
+    const spriteReferences = [...runtime.targetReferences.targets.keys()];
+    const nextContainerId = containers.nextCloneId;
+    const nextSpriteId = runtime.targetReferences.nextCloneId;
+    const created = [];
+    const hats = [];
+    runtime.on('targetWasCreated', target => created.push(target));
+    runtime.startHats = (opcode, fields, target) => {
+        if (opcode === 'control_start_as_clone') hats.push(target);
+        return [];
+    };
+    for (const suffix of ['1', '001', 0, 123, ' boss', 'boss ', '\tboss', 'boss\n', '   ', '\t\n',
+        '@clone:boss', '@sprite:boss', '@container:boss', '@container-clone:boss']) {
+        t.equal(create(suffix), '', `creation fails for ${JSON.stringify(suffix)}`);
+        t.equal(runtime.lastCloneId, '', 'member creation result is also cleared');
+        t.same(runtime.targets.map(target => target.id), targets, 'no member is installed');
+        t.same(body.sprite.clones.map(target => target.id), bodyClones, 'no root member is created');
+        t.same(weapon.sprite.clones.map(target => target.id), weaponClones, 'no nested member is created');
+        t.same([...containers.cloneReferences.keys()], references, 'no container ID is reserved');
+        t.same([...containers.cloneDefinitions.keys()], definitions, 'no container instance is retained');
+        t.same([...runtime.targetReferences.targets.keys()], spriteReferences, 'no member ID is reserved');
+        t.equal(runtime._cloneCounter, 2, 'failed requests do not consume clone capacity');
+        t.equal(containers.nextCloneId, nextContainerId, 'no automatic container ID is consumed');
+        t.equal(runtime.targetReferences.nextCloneId, nextSpriteId, 'no automatic member ID is consumed');
+    }
+    t.same(created, [], 'failed requests do not emit creation events');
+    t.same(hats, [], 'failed requests do not start clone scripts');
+    t.end();
+});
+
+test('empty suffixes allocate automatic IDs which never recycle until project reload', t => {
     const {vm, runtime, containers, extension, create} = setup(t);
     let next = 1;
-    for (const suffix of ['', '12', '001', ' boss', 'boss ', '@clone:a', '@sprite:a',
-        '@container:A', '@container-clone:boss']) {
-        t.equal(create(suffix, 'A//N'), `@container-clone:${next++}`);
+    for (let i = 0; i < 3; i++) {
+        t.equal(create('', 'A//N'), `@container-clone:${next++}`);
         runtime.stopAll();
     }
     runtime.greenFlag();
