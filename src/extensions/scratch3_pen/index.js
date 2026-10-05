@@ -188,15 +188,16 @@ class Scratch3PenBlocks {
      * @param {number} oldX - the previous X position.
      * @param {number} oldY - the previous Y position.
      * @param {boolean} isForce - whether the movement was forced.
+     * @param {Array<number>} [oldWorldPosition] - position before a container transform changed.
      * @private
      */
-    _onTargetMoved (target, oldX, oldY, isForce) {
+    _onTargetMoved (target, oldX, oldY, isForce, oldWorldPosition) {
         // Only move the pen if the movement isn't forced (ie. dragged).
         if (!isForce) {
             const penSkinId = this._getPenLayerID();
             if (penSkinId >= 0) {
                 const penState = this._getPenState(target);
-                const previous = target.localToWorld(oldX, oldY);
+                const previous = oldWorldPosition || target.localToWorld(oldX, oldY);
                 const current = target.getWorldPosition();
                 this.runtime.renderer.penLine(penSkinId, penState.penAttributes,
                     previous[0], previous[1], current[0], current[1]);

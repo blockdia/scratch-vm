@@ -749,6 +749,110 @@ test('interpolation stays local while parent matrices and pen positions remain i
 });
 
 
+const recordPenLines = (vm, renderer) => {
+    const pen = new Pen(vm.runtime);
+    const lines = [];
+    pen._getPenLayerID = () => 1;
+    renderer.penPoint = () => {};
+    renderer.penLine = (id, attributes, ...coordinates) => lines.push(coordinates);
+    return {pen, lines};
+};
+
+test('container transforms draw pen trails between previous and current world positions', t => {
+    const {vm, renderer, add} = setup();
+    vm.runtime.runtimeOptions.fencing = false;
+    const target = add('A//B//one');
+    const outside = add('outside');
+    target.setXY(10, 20);
+    vm.setSpriteFolderContainer('A', true);
+    vm.setSpriteFolderContainer('A//B', true);
+    vm.setSpriteContainerTransform('A//B', {x: 5, y: 10});
+    const {pen, lines} = recordPenLines(vm, renderer);
+    pen._penDown(target);
+    pen._penDown(outside);
+    vm.setSpriteContainerTransform('A', {x: 100, y: 50});
+    vm.setSpriteContainerTransform('A', {direction: 180});
+    vm.setSpriteContainerTransform('A', {size: 200});
+    vm.setSpriteContainerTransform('A//B', {x: 15});
+    vm.setSpriteContainerTransform('A', {size: 100, direction: -90, rotationStyle: 'left-right'});
+    target.setXY(20, 30);
+    const expected = [
+        [15, 30, 115, 80],
+        [115, 80, 130, 35],
+        [130, 35, 160, 20],
+        [160, 20, 160, 0],
+        [160, 0, 75, 80],
+        [75, 80, 65, 90]
+    ];
+    t.equal(lines.length, expected.length, 'each movement draws once, unrelated sprites do not draw');
+    expected.forEach((line, index) => t.ok(lines[index] && lines[index].every((n, i) =>
+        Math.abs(n - line[i]) < 1e-8), `world endpoints for movement ${index + 1}`));
+    t.same([target.x, target.y], [20, 30], 'container changes preserve local coordinates');
+    vm.quit();
+    t.end();
+});
+
+test('container pen trails skip unchanged positions, invalid updates and pen-up sprites', t => {
+    const {vm, renderer, add} = setup();
+    const target = add('A//one');
+    vm.setSpriteFolderContainer('A', true);
+    const {pen, lines} = recordPenLines(vm, renderer);
+    pen._penDown(target);
+    vm.setSpriteContainerTransform('A', {direction: 180, size: 200});
+    t.equal(lines.length, 0, 'rotating and scaling a sprite at the origin does not move its pen');
+    vm.setSpriteContainerTransform('A', {x: 100});
+    t.same(lines, [[0, 0, 100, 0]]);
+    vm.setSpriteContainerTransform('A', {x: 100});
+    vm.setSpriteContainerTransform('A', {});
+    vm.setSpriteContainerTransform('A', {x: NaN});
+    vm.runtime.spriteContainers.sync();
+    vm.setSpriteContainerVisible('A', false);
+    target.setXY(10, 20, true);
+    t.equal(lines.length, 1, 'no-op syncs, visibility and forced dragging add no lines');
+    pen._penUp(target);
+    vm.setSpriteContainerTransform('A', {x: 200});
+    t.equal(lines.length, 1, 'pen up prevents container trails');
+    pen._penDown(target);
+    vm.setSpriteContainerTransform('A', {x: 250});
+    t.ok(lines[1] && lines[1].every((n, i) => Math.abs(n - [240, -20, 290, -20][i]) < 1e-8),
+        'pen resumes from the current world position, even in a hidden container');
+    vm.quit();
+    t.end();
+});
+
+test('container and sprite clones inherit pen trails without drawing during creation', t => {
+    const {vm, renderer, add} = setup();
+    const target = add('A//B//one');
+    target.setXY(10, 20);
+    vm.setSpriteFolderContainer('A', true);
+    vm.setSpriteFolderContainer('A//B', true);
+    vm.setSpriteContainerTransform('A', {x: 100});
+    vm.setSpriteContainerTransform('A//B', {y: 10});
+    const {pen, lines} = recordPenLines(vm, renderer);
+    pen._penDown(target);
+    const containers = vm.runtime.spriteContainers;
+    const [containerClone] = containers.createClone('A//B');
+    const instance = containers.getContainingContainer(containerClone).id;
+    const spriteClone = target.makeClone();
+    vm.runtime.addTarget(spriteClone);
+    t.equal(lines.length, 0, 'clones start at the source world position without drawing');
+    vm.setSpriteContainerTransform(instance, {x: 30});
+    t.same(lines, [[110, 30, 140, 30]], 'only the moved instance draws');
+    vm.setSpriteContainerTransform('A//B', {x: -10});
+    t.same(lines.slice(1), [[110, 30, 100, 30], [110, 30, 100, 30]],
+        'original container moves its source sprite and ordinary sprite clone');
+    lines.length = 0;
+    containers.beginUpdate();
+    vm.setSpriteContainerTransform('A', {x: 200});
+    vm.setSpriteContainerTransform('A//B', {y: 20});
+    t.equal(lines.length, 0, 'batched changes wait until the world positions are synchronized');
+    containers.endUpdate();
+    t.same(lines, [[100, 30, 200, 40], [140, 30, 240, 30], [100, 30, 200, 40]],
+        'the external ancestor moves all live descendants once');
+    vm.quit();
+    t.end();
+});
+
 test('container direction and rotation styles follow native sprite semantics', t => {
     const {vm, add} = setup();
     const target = add('A//one');

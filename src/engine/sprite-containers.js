@@ -364,10 +364,20 @@ class SpriteContainers {
                 }, Transform.identity);
                 const changed = !target._containerTransform || matrix.some((n, i) =>
                     n !== target._containerTransform[i]);
+                // The first synchronization initializes new targets (including pen-down clones).
+                const previousPosition = changed && target._containerTransform && target.onTargetMoved ?
+                    target.getWorldPosition() : null;
                 target._containerTransform = matrix;
                 const renderer = this.runtime.renderer;
                 if (renderer) {
                     drawables.forEach(id => renderer.updateDrawableParentTransform(id, matrix));
+                }
+                if (previousPosition) {
+                    const position = target.getWorldPosition();
+                    if (position[0] !== previousPosition[0] || position[1] !== previousPosition[1]) {
+                        // Local coordinates did not change, so pen trails need the old world position.
+                        target.onTargetMoved(target, target.x, target.y, false, previousPosition);
+                    }
                 }
                 // Bubbles use world bounds and stay upright at their normal size.
                 if (changed) target.emitVisualChange();
