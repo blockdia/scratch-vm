@@ -17,6 +17,7 @@ const log = require('../util/log');
 const maybeFormatMessage = require('../util/maybe-format-message');
 const StageLayering = require('./stage-layering');
 const SpriteContainers = require('./sprite-containers');
+const TargetReferences = require('./target-references');
 const Variable = require('./variable');
 const xmlEscape = require('../util/xml-escape');
 const ScratchLinkWebSocket = require('../util/scratch-link-websocket');
@@ -311,6 +312,9 @@ class Runtime extends EventEmitter {
          * @type {number}
          */
         this._cloneCounter = 0;
+        this.targetReferences = new TargetReferences();
+        // Global creation result, available to scripts, monitors and manual reporter evaluation.
+        this.lastCloneId = '';
 
         /**
          * Flag to emit a targets update at the end of a step. When target data
@@ -2377,6 +2381,8 @@ class Runtime extends EventEmitter {
         });
 
         this.targets.map(this.disposeTarget, this);
+        this.targetReferences.reset();
+        this.lastCloneId = '';
         this.spriteContainers.load([]);
         this.spriteContainers.sync();
         this.extensionStorage = {};
@@ -2419,7 +2425,11 @@ class Runtime extends EventEmitter {
      * @param {Target} target target to add
      */
     addTarget (target) {
+        // Stage/sprite identity is known only after deserialization, when originals are installed.
+        if (target.isOriginal) this.targetReferences.register(target);
         this.targets.push(target);
+        this.targetReferences.activate(target);
+        if (!target.isOriginal && target.publicId) this.lastCloneId = target.publicId;
         this.executableTargets.push(target);
         this.spriteContainers.sync();
         if (target.isStage && !this._stageTarget) {
@@ -2537,6 +2547,7 @@ class Runtime extends EventEmitter {
      */
     greenFlag () {
         this.stopAll();
+        this.lastCloneId = '';
         this.emit(Runtime.PROJECT_START);
         this.updateCurrentMSecs();
         this.ioDevices.clock.resetProjectTimer();
@@ -3297,6 +3308,15 @@ class Runtime extends EventEmitter {
                 return target;
             }
         }
+    }
+
+    /** Resolve a sprite name or an exact public instance reference, never falling back from an ID to a name. */
+    resolveTargetReference (reference) {
+        if (reference === null || typeof reference === 'undefined') return null;
+        const value = String(reference);
+        if (!value) return null;
+        if (TargetReferences.isReference(value)) return this.targetReferences.get(value);
+        return this.getSpriteTargetByName(value) || null;
     }
 
     /**

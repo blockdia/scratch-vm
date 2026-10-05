@@ -224,8 +224,9 @@ class SpriteContainers {
 
     /** Snapshot every live member of the selected container, including existing clones and nested instances. */
     createClone (path) {
-        if (!this.definitions.has(path) && !this.cloneDefinitions.has(path)) return [];
         const runtime = this.runtime;
+        runtime.lastCloneId = '';
+        if (!this.definitions.has(path) && !this.cloneDefinitions.has(path)) return [];
         const sources = runtime.targets.filter(target => !target.isStage &&
             this.getTargetContainers(target).some(container => container.id === path));
         if (!sources.length || !runtime.clonesAvailable(sources.length)) return [];
@@ -254,6 +255,7 @@ class SpriteContainers {
                 const clone = source.makeClone({containerPaths: paths, startHats: false});
                 if (!clone) {
                     clones.forEach(target => runtime.disposeTarget(target));
+                    runtime.lastCloneId = '';
                     return [];
                 }
                 clones.push(clone);
@@ -261,6 +263,7 @@ class SpriteContainers {
             }
         } catch (error) {
             clones.forEach(target => runtime.disposeTarget(target));
+            runtime.lastCloneId = '';
             throw error;
         } finally {
             this.endUpdate();

@@ -91,7 +91,7 @@ class Scratch3MotionBlocks {
             targetY = Math.round(stageHeight * (Math.random() - 0.5));
         } else {
             targetName = Cast.toString(targetName);
-            const goToTarget = this.runtime.getSpriteTargetByName(targetName);
+            const goToTarget = this.runtime.resolveTargetReference(targetName);
             if (!goToTarget) return;
             [targetX, targetY] = goToTarget.getWorldPosition();
         }
@@ -131,7 +131,7 @@ class Scratch3MotionBlocks {
             return;
         } else {
             args.TOWARDS = Cast.toString(args.TOWARDS);
-            const pointTarget = this.runtime.getSpriteTargetByName(args.TOWARDS);
+            const pointTarget = this.runtime.resolveTargetReference(args.TOWARDS);
             if (!pointTarget) return;
             [targetX, targetY] = pointTarget.getWorldPosition();
         }

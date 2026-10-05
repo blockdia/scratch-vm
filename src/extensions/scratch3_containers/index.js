@@ -219,7 +219,7 @@ class Containers {
             if (!['x', 'y'].includes(args.PROPERTY)) return 0;
             position = [util.ioQuery('mouse', 'getScratchX'), util.ioQuery('mouse', 'getScratchY')];
         } else {
-            const target = name === '_myself_' ? util.target : this.runtime.getSpriteTargetByName(name);
+            const target = name === '_myself_' ? util.target : this.runtime.resolveTargetReference(name);
             if (!target || target.isStage) return 0;
             switch (args.PROPERTY) {
             case 'x':
@@ -368,6 +368,7 @@ class Containers {
     }
 
     createClone (args, util) {
+        this.runtime.lastCloneId = '';
         const container = this._container(args.CONTAINER, util);
         if (container) this.runtime.spriteContainers.createClone(container.path);
     }

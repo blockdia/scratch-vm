@@ -18,6 +18,7 @@ const Sprite = require('./sprites/sprite');
 const createComponentTemplate = require('./components/templates');
 const ComponentModel = require('./components/model');
 const StringUtil = require('./util/string-util');
+const TargetReferences = require('./engine/target-references');
 const formatMessage = require('format-message');
 
 const Variable = require('./engine/variable');
@@ -814,14 +815,48 @@ class VirtualMachine extends EventEmitter {
 
         targets = targets.filter(target => !!target);
 
+        // Migrate old sprite names in the reserved reference namespace before installing any target.
+        // Fixed sprite menus follow the rename; arbitrary text and variable values remain user data.
+        const roots = this.runtime.targets.concat(targets).map(target => target.getName().split('//')[0]);
+        const renamedRoots = new Map();
+        for (const target of targets) {
+            const oldName = target.getName();
+            if (target.isStage || !TargetReferences.isReference(oldName)) continue;
+            const root = oldName.split('//')[0];
+            if (!renamedRoots.has(root)) {
+                const nextRoot = StringUtil.unusedName(`_${root}`, roots);
+                roots.push(nextRoot);
+                renamedRoots.set(root, nextRoot);
+            }
+            const newName = renamedRoots.get(root) + oldName.slice(root.length);
+            target.sprite.name = newName;
+            for (const owner of targets) owner.blocks.updateAssetName(oldName, newName, 'sprite');
+        }
+        if (wholeProject) {
+            const renamedPaths = new Map();
+            for (const path of this.runtime.spriteContainers.definitions.keys()) {
+                const root = path.split('//')[0];
+                if (renamedRoots.has(root)) renamedPaths.set(path, renamedRoots.get(root) + path.slice(root.length));
+            }
+            for (const [root, nextRoot] of renamedRoots) this.runtime.spriteContainers.move(root, nextRoot);
+            for (const owner of targets) owner.blocks.updateContainerReferences(renamedPaths);
+        }
+
         return this._loadExtensions(extensions.extensionIDs, extensions.extensionURLs).then(() => {
             this.runtime.spriteContainers.beginUpdate();
             try {
                 targets.forEach(target => {
+                    // Finalize the name before registering the public @sprite:<name> reference.
+                    if (target.isSprite()) {
+                        const names = this.runtime.targets.filter(member => member.isOriginal && !member.isStage)
+                            .map(member => member.getName());
+                        const oldName = target.getName();
+                        const newName = StringUtil.unusedName(oldName, names);
+                        target.sprite.name = newName;
+                        if (oldName !== newName) target.blocks.updateAssetName(oldName, newName, 'sprite');
+                    }
                     this.runtime.addTarget(target);
                     (/** @type RenderedTarget */ target).updateAllDrawableProperties();
-                    // Ensure unique sprite name
-                    if (target.isSprite()) this.renameSprite(target.id, target.getName());
                 });
             } finally {
                 this.runtime.spriteContainers.endUpdate();
@@ -1445,13 +1480,18 @@ class VirtualMachine extends EventEmitter {
             if (!sprite) {
                 throw new Error('No sprite associated with this target.');
             }
-            if (newName && RESERVED_NAMES.indexOf(newName) === -1) {
+            if (newName && RESERVED_NAMES.indexOf(newName) === -1 && !TargetReferences.isReference(newName)) {
                 const names = this.runtime.targets
-                    .filter(runtimeTarget => runtimeTarget.isSprite() && runtimeTarget.id !== target.id)
+                    .filter(runtimeTarget => runtimeTarget.isSprite() && runtimeTarget.sprite !== sprite)
                     .map(runtimeTarget => runtimeTarget.sprite.name);
                 const oldName = sprite.name;
                 const newUnusedName = StringUtil.unusedName(newName, names);
                 sprite.name = newUnusedName;
+                const original = this.runtime.targets.find(member => member.isOriginal && member.sprite === sprite);
+                if (original) {
+                    this.runtime.targetReferences.register(original);
+                    this.runtime.targetReferences.activate(original);
+                }
                 this.runtime.spriteContainers.sync();
                 if (oldName === newUnusedName) {
                     return;
@@ -1459,7 +1499,7 @@ class VirtualMachine extends EventEmitter {
                 const allTargets = this.runtime.targets;
                 for (let i = 0; i < allTargets.length; i++) {
                     const currTarget = allTargets[i];
-                    currTarget.blocks.updateAssetName(oldName, newName, 'sprite');
+                    currTarget.blocks.updateAssetName(oldName, newUnusedName, 'sprite');
                 }
 
                 if (newUnusedName !== oldName) this.emitTargetsUpdate();
