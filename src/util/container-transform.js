@@ -36,4 +36,13 @@ const inversePoint = (m, x, y) => {
     const dy = y - m[5];
     return [((m[3] * dx) - (m[2] * dy)) / det, ((m[0] * dy) - (m[1] * dx)) / det];
 };
-module.exports = {defaults, identity, valid, normalize, matrix, multiply, point, inversePoint};
+const inverseDirection = (m, direction) => {
+    const angle = (90 - direction) * Math.PI / 180;
+    const x = Math.cos(angle);
+    const y = Math.sin(angle);
+    const det = (m[0] * m[3]) - (m[1] * m[2]);
+    const localX = ((m[3] * x) - (m[2] * y)) / det;
+    const localY = ((m[0] * y) - (m[1] * x)) / det;
+    return MathUtil.wrapClamp(90 - (Math.atan2(localY, localX) * 180 / Math.PI), -179, 180);
+};
+module.exports = {defaults, identity, valid, normalize, matrix, multiply, point, inversePoint, inverseDirection};

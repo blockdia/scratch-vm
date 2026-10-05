@@ -2,6 +2,7 @@ const test = require('tap').test;
 const VM = require('../../src/virtual-machine');
 const Sprite = require('../../src/sprites/sprite');
 const Containers = require('../../src/extensions/scratch3_containers');
+const Pen = require('../../src/extensions/scratch3_pen');
 const Renderer = require('../fixtures/component-renderer');
 const ContainerOption = require('../../src/util/container-option');
 const formatMessage = require('format-message');
@@ -143,6 +144,8 @@ test('menus replace the current name with a relative choice and rename only name
         ['named', 'containers_menu_containers', 'containers', 'A//N'],
         ['self', 'containers_menu_containers', 'containers', ContainerOption.SELF],
         ['delete', 'containers_menu_ancestorContainers', 'ancestorContainers', 'A'],
+        ['frame', 'containers_menu_coordinateSpaces', 'coordinateSpaces', 'A//N'],
+        ['relative-frame', 'containers_menu_coordinateSpaces', 'coordinateSpaces', ContainerOption.SELF],
         ['literal', 'text', 'TEXT', 'A//N']
     ]) {
         target.blocks.createBlock({id,
@@ -160,6 +163,8 @@ test('menus replace the current name with a relative choice and rename only name
     containers.endUpdate();
     t.equal(target.blocks.getBlock('named').fields.containers.value, 'B//N');
     t.equal(target.blocks.getBlock('delete').fields.ancestorContainers.value, 'B');
+    t.equal(target.blocks.getBlock('frame').fields.coordinateSpaces.value, 'B//N');
+    t.equal(target.blocks.getBlock('relative-frame').fields.coordinateSpaces.value, ContainerOption.SELF);
     t.equal(target.blocks.getBlock('self').fields.containers.value, ContainerOption.SELF);
     t.equal(target.blocks.getBlock('literal').fields.TEXT.value, 'A//N');
     vm.quit();
@@ -286,7 +291,7 @@ test('world reporters compose nested transforms, reflections and live clone stat
     vm.setSpriteContainerTransform('A', {x: 100, y: 50, size: 200, direction: 180});
     vm.setSpriteContainerTransform('A//B', {x: 5, y: 10, size: 50});
     const values = (sprite, TARGET = '_myself_') => ['x', 'y', 'direction', 'size'].map(PROPERTY =>
-        extension.worldProperty({PROPERTY, TARGET}, {target: sprite}));
+        extension.targetProperty({SPACE: ContainerOption.STAGE, PROPERTY, TARGET}, {target: sprite}));
     const near = (actual, expected) => actual.forEach((value, i) => t.ok(Math.abs(value - expected[i]) < 1e-8));
     near(values(target), [140, 30, 180, 150]);
     t.same([target.x, target.y, target.direction, target.size], [10, 20, 90, 150], 'local values unchanged');
@@ -305,13 +310,15 @@ test('world reporters compose nested transforms, reflections and live clone stat
     t.same(values(stage), [0, 0, 0, 0]);
     t.same(values(target, 'missing'), [0, 0, 0, 0]);
     t.same(values(target, '_stage_'), [0, 0, 0, 0]);
-    t.equal(extension.worldProperty({PROPERTY: 'invalid', TARGET: target.getName()}, {target}), 0);
+    t.equal(extension.targetProperty({SPACE: ContainerOption.STAGE,
+        PROPERTY: 'invalid',
+        TARGET: target.getName()}, {target}), 0);
     const numericName = add('123');
     numericName.setXY(42, 0);
-    t.equal(extension.worldProperty({PROPERTY: 'x', TARGET: 123}, {target: stage}), 42,
+    t.equal(extension.targetProperty({SPACE: ContainerOption.STAGE, PROPERTY: 'x', TARGET: 123}, {target: stage}), 42,
         'reporter inputs are cast to sprite names');
     t.match(vm.runtime.getBlocksXML(stage).find(category => category.id === 'containers').xml,
-        'containers_worldProperty', 'stage scripts can query other sprites');
+        'containers_targetProperty', 'stage scripts can query other sprites');
     vm.quit();
     t.end();
 });
@@ -417,27 +424,28 @@ test('world setters retain native constraints, numeric casting and self-only pal
     t.end();
 });
 
-test('world target menus and fixed references follow sprites and preserve shared named choices', async t => {
+test('target menus omit the edited sprite and preserve shared named choices', async t => {
     const {vm, add, extension} = setup();
     t.teardown(() => vm.quit());
-    t.same(extension.getSprites().map(item => item.value), ['']);
+    const options = () => extension.getPositionTargets().map(item => item.value);
+    t.same(options(), ['_mouse_', '_myself_']);
     const stage = add('stage');
     stage.isStage = true;
     const target = add('A//one');
     const other = add('B//two');
     vm.setSpriteFolderContainer('A', true);
     vm.runtime.setEditingTarget(target);
-    t.same(extension.getSprites().map(item => item.value), ['_myself_', 'B//two']);
+    t.same(options(), ['_mouse_', '_myself_', 'B//two']);
     const clone = target.makeClone();
     vm.runtime.addTarget(clone);
     vm.runtime.setEditingTarget(clone);
-    t.same(extension.getSprites().map(item => item.value), ['_myself_', 'B//two'],
-        'clones are not duplicated in the menu');
+    t.same(options(), ['_mouse_', '_myself_', 'B//two'], 'editing a clone also excludes its original sprite');
     vm.runtime.setEditingTarget(stage);
-    t.same(extension.getSprites().map(item => item.value), ['A//one', 'B//two']);
+    t.same(options(), ['_mouse_', '_myself_', 'A//one', 'B//two']);
     for (const [id, opcode, field, value] of [
-        ['named', 'containers_menu_sprites', 'sprites', 'B//two'],
-        ['self', 'containers_menu_sprites', 'sprites', '_myself_'],
+        ['named', 'containers_menu_positionTargets', 'positionTargets', 'B//two'],
+        ['self', 'containers_menu_positionTargets', 'positionTargets', '_myself_'],
+        ['mouse', 'containers_menu_positionTargets', 'positionTargets', '_mouse_'],
         ['literal', 'text', 'TEXT', 'B//two']
     ]) {
         target.blocks.createBlock({id,
@@ -450,17 +458,21 @@ test('world target menus and fixed references follow sprites and preserve shared
             next: null});
     }
     vm.renameSprite(other.id, 'C//renamed');
-    t.same(extension.getSprites().map(item => item.value), ['A//one', 'C//renamed']);
-    t.equal(target.blocks.getBlock('named').fields.sprites.value, 'C//renamed');
-    t.equal(target.blocks.getBlock('self').fields.sprites.value, '_myself_');
+    t.same(options(), ['_mouse_', '_myself_', 'A//one', 'C//renamed']);
+    t.equal(target.blocks.getBlock('named').fields.positionTargets.value, 'C//renamed');
+    t.equal(target.blocks.getBlock('self').fields.positionTargets.value, '_myself_');
+    t.equal(target.blocks.getBlock('mouse').fields.positionTargets.value, '_mouse_');
     t.equal(target.blocks.getBlock('literal').fields.TEXT.value, 'B//two');
     await vm.shareBlocksToTarget([target.blocks.getBlock('named')], other.id, target.id);
-    const shared = Object.values(other.blocks._blocks).find(block => block.opcode === 'containers_menu_sprites');
-    t.equal(shared.fields.sprites.value, 'C//renamed',
-        'sharing to the named sprite preserves the explicit source instead of rewriting it to myself');
+    const shared = Object.values(other.blocks._blocks)
+        .find(block => block.opcode === 'containers_menu_positionTargets');
+    t.equal(shared.fields.positionTargets.value, 'C//renamed',
+        'sharing to the named sprite preserves its explicit name');
+    vm.runtime.setEditingTarget(other);
+    t.notOk(options().includes('C//renamed'), 'stored named selection remains excluded from the menu');
     await vm.shareBlocksToTarget([target.blocks.getBlock('self')], stage.id, target.id);
-    t.equal(Object.values(stage.blocks._blocks)[0].fields.sprites.value, '_myself_',
-        'relative choices survive sharing even when unavailable on the stage');
+    t.equal(Object.values(stage.blocks._blocks)[0].fields.positionTargets.value, '_myself_',
+        'relative choices survive sharing to the stage');
 });
 
 test('container events work without target updates, coalesce per frame, and clear with the project', t => {
@@ -743,4 +755,228 @@ test('projects with containers but no blocks or extension declaration load and s
             t.ok(reloaded.runtime.getBlocksXML(reloaded.editingTarget).some(category => category.id === 'containers'));
         }
     }
+});
+
+test('coordinate reporters convert complete points across nested, rotated and reflected frames', t => {
+    const {vm, add, extension} = setup();
+    t.teardown(() => vm.quit());
+    const target = add('A//ordinary//B//one');
+    const other = add('C//two');
+    vm.setSpriteFolderContainer('A', true);
+    vm.setSpriteFolderContainer('A//ordinary//B', true);
+    vm.setSpriteFolderContainer('C', true);
+    vm.setSpriteContainerTransform('A', {x: 100, y: 50, size: 200, direction: 180});
+    vm.setSpriteContainerTransform('A//ordinary//B', {x: 5, y: 10, size: 50});
+    vm.setSpriteContainerTransform('C', {x: -100, y: 30});
+    target.setXY(10, 20);
+    other.setXY(240, 0);
+    const util = {target, ioQuery: (device, method) => (method === 'getScratchX' ? 140 : 30)};
+    const values = (method, args, context = util) => ['x', 'y'].map(COORDINATE =>
+        extension[method]({...args, COORDINATE, PROPERTY: COORDINATE}, context));
+    const near = (actual, expected) => actual.forEach((value, i) =>
+        t.ok(Math.abs(value - expected[i]) < 1e-8, `${value} is near ${expected[i]}`));
+    const CONTAINER = ContainerOption.SELF;
+    near(values('convertPoint', {FROM: CONTAINER, TO: ContainerOption.STAGE, X: 10, Y: 20}), [140, 30]);
+    near(values('convertPoint', {FROM: ContainerOption.STAGE, TO: CONTAINER, X: 140, Y: 30}), [10, 20]);
+    for (const TARGET of ['_mouse_', '_myself_', other.getName()]) {
+        near(values('targetProperty', {SPACE: CONTAINER, TARGET}), [10, 20]);
+    }
+    near(values('targetProperty', {SPACE: 'C', TARGET: '_myself_'}), [240, 0]);
+    near(values('convertPoint', {FROM: ContainerOption.STAGE, TO: CONTAINER, X: 140, Y: 40}), [0, 20]);
+    near(values('convertPoint', {FROM: ContainerOption.STAGE, TO: CONTAINER, X: 150, Y: 30}), [10, 30]);
+    vm.setSpriteContainerTransform('A', {direction: -90, rotationStyle: 'left-right'});
+    near(values('convertPoint', {FROM: CONTAINER, TO: ContainerOption.STAGE, X: '10', Y: '20'}), [80, 90]);
+    near(values('convertPoint', {FROM: ContainerOption.STAGE, TO: CONTAINER, X: 80, Y: 90}), [10, 20]);
+    near(values('convertPoint', {FROM: 'A', TO: ContainerOption.STAGE, X: 5, Y: 10}), [90, 70]);
+    t.end();
+});
+
+test('coordinate frames distinguish runtime instances, named originals and the stage fallback', t => {
+    const {vm, add, extension, containers} = setup();
+    t.teardown(() => vm.quit());
+    const target = add('A//B//one');
+    const outside = add('outside');
+    const stage = add('stage');
+    stage.isStage = true;
+    vm.setSpriteFolderContainer('A', true);
+    vm.setSpriteFolderContainer('A//B', true);
+    vm.setSpriteContainerTransform('A', {x: 100, size: 200});
+    vm.setSpriteContainerTransform('A//B', {x: 10});
+    target.setXY(5, 0);
+    const clone = containers.createClone('A')[0];
+    const chain = containers.getTargetContainers(clone);
+    containers.setTransform(chain[0].id, {x: -100});
+    containers.setTransform(chain[1].id, {x: 20});
+    const args = {TARGET: '_myself_', SPACE: ContainerOption.SELF, PROPERTY: 'x'};
+    const read = patch => extension.targetProperty({...args, ...patch}, {target: clone});
+    const from = {FROM: ContainerOption.SELF, TO: ContainerOption.STAGE, COORDINATE: 'x'};
+    const to = {FROM: ContainerOption.STAGE, TO: ContainerOption.SELF, COORDINATE: 'x'};
+    t.equal(read({}), 5, 'self in its actual instance');
+    t.equal(read({TARGET: target.getName()}), 95, 'named sprite remains the original');
+    t.equal(read({SPACE: 'A//B'}), -85, 'named frame remains the original');
+    t.equal(extension.convertPoint({...from, X: 5, Y: 0}, {target: clone}), -50);
+    for (const context of [outside, stage]) {
+        t.equal(extension.convertPoint({...from, X: 23, Y: 9}, {target: context}), 23);
+        t.equal(extension.convertPoint({...to, X: 23, Y: 9}, {target: context}), 23);
+        t.equal(extension.targetProperty({...args, TARGET: target.getName()}, {target: context}), 130);
+        vm.runtime.setEditingTarget(context);
+        t.same(extension.getCoordinateSpaces().map(item => item.value),
+            [ContainerOption.STAGE, ContainerOption.SELF, 'A', 'A//B'],
+            'outside contexts include all named containers');
+    }
+    t.equal(extension.targetProperty(args, {target: stage}), 0, 'stage is not a sprite target');
+    for (const SPACE of ['missing', chain[1].id, 'A//ordinary']) {
+        t.equal(read({SPACE}), 0, 'invalid named frames do not silently select an instance');
+    }
+    t.equal(read({TARGET: 'missing'}), 0);
+    t.equal(read({PROPERTY: 'invalid'}), 0);
+    for (const direction of [from, to]) {
+        for (const point of [{X: Infinity, Y: 0}, {X: 0, Y: '-Infinity'}]) {
+            t.equal(extension.convertPoint({...direction, ...point}, {target}), 0);
+        }
+        t.equal(extension.convertPoint({...direction, X: 0, Y: 0, COORDINATE: 'invalid'}, {target}), 0);
+    }
+    for (const editing of [target, clone]) {
+        vm.runtime.setEditingTarget(editing);
+        t.same(extension.getCoordinateSpaces().map(item => item.value),
+            [ContainerOption.STAGE, ContainerOption.SELF, 'A'], 'only the nearest container name is excluded');
+        t.same(extension.getPositionTargets().map(item => item.value), ['_mouse_', '_myself_', 'outside']);
+    }
+    t.end();
+});
+
+test('stage xy movement is atomic for pen and respects native movement constraints', t => {
+    const {vm, add, extension, renderer} = setup();
+    t.teardown(() => vm.quit());
+    const target = add('A//one');
+    const stage = add('stage');
+    stage.isStage = true;
+    vm.setSpriteFolderContainer('A', true);
+    vm.setSpriteContainerTransform('A', {x: 100, size: 200});
+    const pen = new Pen(vm.runtime);
+    pen._getPenLayerID = () => 1;
+    const lines = [];
+    renderer.penPoint = () => {};
+    renderer.penLine = (id, attributes, ...xy) => lines.push(xy);
+    pen._penDown(target);
+    extension.goToWorldXY({X: '120', Y: '20'}, {target});
+    t.same([target.x, target.y], [10, 10]);
+    t.same(lines, [[100, 0, 120, 20]], 'one diagonal instead of two axis-aligned pen strokes');
+    target.dragging = true;
+    extension.goToWorldXY({X: 0, Y: 0}, {target});
+    target.dragging = false;
+    for (const point of [{X: Infinity, Y: 0}, {X: 0, Y: -Infinity}]) {
+        extension.goToWorldXY(point, {target});
+    }
+    t.same([target.x, target.y], [10, 10]);
+    t.equal(lines.length, 1, 'ignored moves emit no pen strokes');
+    extension.goToWorldXY({X: 50, Y: 50}, {target: stage});
+    t.same([stage.x, stage.y], [0, 0]);
+    renderer.getFencedPositionOfDrawable = (id, position) => [Math.min(position[0], 20), position[1]];
+    extension.goToWorldXY({X: 200, Y: 30}, {target});
+    t.same(target.getWorldPosition(), [140, 30], 'native fencing remains in force');
+    extension.goToWorldXY({X: 'not a number', Y: 0}, {target});
+    t.same(target.getWorldPosition(), [0, 0], 'Scratch number casting is preserved');
+    const spriteXML = vm.runtime.getBlocksXML(target).find(category => category.id === 'containers').xml;
+    const stageXML = vm.runtime.getBlocksXML(stage).find(category => category.id === 'containers').xml;
+    t.match(spriteXML, 'containers_goToWorldXY');
+    t.notMatch(stageXML, 'containers_goToWorldXY');
+    for (const opcode of ['targetProperty', 'convertPoint']) {
+        t.match(stageXML, `containers_${opcode}`, 'stage scripts can convert named frames');
+    }
+    t.end();
+});
+
+test('merged property query and point conversion use the selected coordinate frame', t => {
+    const {vm, add, extension, containers} = setup();
+    t.teardown(() => vm.quit());
+    const target = add('A//N//one');
+    add('_stage_//reserved-name');
+    vm.setSpriteFolderContainer('A', true);
+    vm.setSpriteFolderContainer('A//N', true);
+    vm.setSpriteFolderContainer('_stage_', true);
+    vm.setSpriteContainerTransform('A', {x: 100, y: 50, size: 200, direction: 180});
+    vm.setSpriteContainerTransform('A//N', {x: 5, y: 10, size: 50});
+    vm.setSpriteContainerTransform('_stage_', {x: 200});
+    target.setXY(10, 20);
+    target.setDirection(30);
+    target.size = 150;
+    const util = {target, ioQuery: (device, method) => (method === 'getScratchX' ? 140 : 30)};
+    const near = (actual, expected) => actual.forEach((value, i) =>
+        t.ok(Math.abs(value - expected[i]) < 1e-8, `${value} should equal ${expected[i]}`));
+    const properties = (SPACE, TARGET = '_myself_', context = util) => ['x', 'y', 'direction', 'size'].map(PROPERTY =>
+        extension.targetProperty({SPACE, TARGET, PROPERTY}, context));
+    const convert = (FROM, TO, X, Y, context = util) => ['x', 'y'].map(COORDINATE =>
+        extension.convertPoint({FROM, TO, X, Y, COORDINATE}, context));
+    near(properties(ContainerOption.STAGE), [140, 30, 120, 150]);
+    near(properties(ContainerOption.SELF), [10, 20, 30, 150]);
+    near(properties('A'), [10, 20, 30, 75]);
+    near(properties(ContainerOption.SELF, '_mouse_'), [10, 20, 0, 0]);
+    near(convert(ContainerOption.SELF, ContainerOption.STAGE, 10, 20), [140, 30]);
+    near(convert(ContainerOption.STAGE, ContainerOption.SELF, 140, 30), [10, 20]);
+    near(convert('A//N', 'A', 10, 20), [10, 20]);
+    near(convert('A', 'A', 12, 34), [12, 34]);
+    near(convert('_stage_', ContainerOption.STAGE, 5, 6), [205, 6]);
+    vm.setSpriteContainerTransform('A', {direction: -90, rotationStyle: 'left-right'});
+    near(properties(ContainerOption.STAGE), [80, 90, -30, 150]);
+    near(properties(ContainerOption.SELF), [10, 20, 30, 150]);
+    const clone = containers.createClone('A')[0];
+    const chain = containers.getTargetContainers(clone);
+    containers.setTransform(chain[0].id, {x: -100, size: 400});
+    near(properties(ContainerOption.SELF, '_myself_', {target: clone}), [10, 20, 30, 150]);
+    near(properties('A//N', '_myself_', {target: clone}), [230, 60, 30, 300]);
+    near(convert(ContainerOption.SELF, 'A//N', 10, 20, {target: clone}), [230, 60]);
+    for (const invalid of ['missing', chain[0].id]) {
+        near(properties(invalid), [0, 0, 0, 0]);
+        near(convert(invalid, ContainerOption.STAGE, 10, 20), [0, 0]);
+        near(convert(ContainerOption.STAGE, invalid, 10, 20), [0, 0]);
+    }
+    near(properties(ContainerOption.STAGE, 'missing'), [0, 0, 0, 0]);
+    near(convert(ContainerOption.STAGE, 'A', Infinity, 20), [0, 0]);
+    const xml = vm.runtime.getBlocksXML(target).find(category => category.id === 'containers').xml;
+    for (const opcode of ['worldProperty', 'positionInContainer', 'pointToStage', 'pointToContainer']) {
+        t.notMatch(xml, `containers_${opcode}`, 'removed blocks are absent from the palette');
+        t.equal(vm.runtime.getOpcodeFunction(`containers_${opcode}`), undefined, 'no legacy execution entry');
+        t.equal(extension[opcode], undefined, 'legacy implementation removed');
+        t.notOk(extension.getInfo().blocks.some(block => block.opcode === opcode), 'legacy definition removed');
+    }
+    t.same(extension.getCoordinateSpaces().map(item => item.value),
+        [ContainerOption.STAGE, ContainerOption.SELF, 'A', 'A//N', '_stage_']);
+    t.end();
+});
+
+test('dependent property menu filters fixed mouse selections and preserves dynamic selections', t => {
+    const {vm, add, extension} = setup();
+    t.teardown(() => vm.quit());
+    const target = add('A//one');
+    vm.setSpriteFolderContainer('A', true);
+    const options = value => extension.getTargetProperties(target.id, {TARGET: value}).map(item => item.value);
+    t.same(options('_mouse_'), ['x', 'y']);
+    for (const value of ['_myself_', target.getName(), undefined, null]) {
+        t.same(options(value), ['x', 'y', 'size', 'direction']);
+    }
+    const updates = (value, property) => vm.runtime._getDependentMenuUpdates(
+        'containers_targetProperty', 'TARGET', 'positionTargets', value,
+        {PROPERTY: {name: 'PROPERTY', value: property}});
+    t.same(updates(undefined, 'direction'), {}, 'connecting a reporter retains direction');
+    t.same(updates(undefined, 'size'), {}, 'connecting a reporter retains size');
+    t.same(updates('_mouse_', 'direction'), {PROPERTY: 'x'}, 'fixed mouse normalizes an unsupported property');
+    t.same(updates('_mouse_', 'y'), {}, 'fixed mouse retains valid coordinates');
+    const source = target.blocks;
+    source.createBlock({id: 'frame',
+        opcode: 'containers_menu_coordinateSpaces',
+        fields: {coordinateSpaces: {name: 'coordinateSpaces', value: 'A'}},
+        inputs: {},
+        next: null,
+        parent: null});
+    source.createBlock({id: 'stage-space',
+        opcode: 'containers_menu_coordinateSpaces',
+        fields: {coordinateSpaces: {name: 'coordinateSpaces', value: ContainerOption.STAGE}},
+        inputs: {},
+        next: null,
+        parent: null});
+    source.updateContainerReferences(new Map([['A', 'B']]));
+    t.equal(source.getBlock('frame').fields.coordinateSpaces.value, 'B');
+    t.equal(source.getBlock('stage-space').fields.coordinateSpaces.value, ContainerOption.STAGE);
+    t.end();
 });

@@ -2,6 +2,7 @@ const StageLayering = require('./stage-layering');
 const uid = require('../util/uid');
 const Transform = require('../util/container-transform');
 const Effects = require('../util/container-effects');
+const ContainerOption = require('../util/container-option');
 
 const ancestors = name => {
     const parts = String(name).split('//');
@@ -158,6 +159,51 @@ class SpriteContainers {
     getContainingContainer (target) {
         const containers = target ? this.getTargetContainers(target) : [];
         return containers.length ? containers[containers.length - 1] : null;
+    }
+
+    // A named frame always means the original container. The relative frame follows
+    // the executing target's actual instance ancestry, or the stage outside containers.
+    getCoordinateMatrix (path, target) {
+        let chain;
+        if (path === ContainerOption.SELF) {
+            chain = target ? this.getTargetContainers(target) : [];
+        } else {
+            if (!this.definitions.has(path)) return null;
+            chain = ancestors(`${path}//_`).map(id => this.definitions.get(id))
+                .filter(Boolean);
+        }
+        return chain.reduce((parent, container) =>
+            Transform.multiply(parent, Transform.matrix(container.transform)), Transform.identity);
+    }
+
+    localToWorld (path, x, y, target) {
+        return this._convertPoint(path, x, y, target, Transform.point);
+    }
+
+    getSpaceMatrix (space, target) {
+        return space === ContainerOption.STAGE ? Transform.identity : this.getCoordinateMatrix(space, target);
+    }
+
+    convertPoint (from, to, x, y, target) {
+        if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
+        const source = this.getSpaceMatrix(from, target);
+        const destination = this.getSpaceMatrix(to, target);
+        if (!source || !destination) return null;
+        const world = Transform.point(source, x, y);
+        const result = Transform.inversePoint(destination, world[0], world[1]);
+        return result.every(Number.isFinite) ? result : null;
+    }
+
+    worldToLocal (path, x, y, target) {
+        return this._convertPoint(path, x, y, target, Transform.inversePoint);
+    }
+
+    _convertPoint (path, x, y, target, convert) {
+        if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
+        const matrix = this.getCoordinateMatrix(path, target);
+        if (!matrix) return null;
+        const result = convert(matrix, x, y);
+        return result.every(Number.isFinite) ? result : null;
     }
 
     // The same membership drives rendering, visibility and the editor's layer tree.

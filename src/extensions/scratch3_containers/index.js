@@ -18,6 +18,8 @@ class Containers {
     getInfo () {
         const container = {type: ArgumentType.STRING, menu: 'containers'};
         const property = {type: ArgumentType.STRING, menu: 'properties', defaultValue: 'x'};
+        const coordinate = {type: ArgumentType.STRING, menu: 'coordinates', defaultValue: 'x'};
+        const space = defaultValue => ({type: ArgumentType.STRING, menu: 'coordinateSpaces', defaultValue});
         const number = defaultValue => ({type: ArgumentType.NUMBER, defaultValue});
         const item = (value, label) => ({text: text(value, label), value});
         return {
@@ -47,16 +49,33 @@ class Containers {
                     text: text('setRotationStyle', 'set rotation style of [CONTAINER] to [STYLE]'),
                     arguments: {CONTAINER: container, STYLE: {type: ArgumentType.STRING, menu: 'rotationStyles'}}},
                 '---',
-                {opcode: 'worldProperty',
-                    blockType: BlockType.REPORTER,
-                    text: text('worldProperty', '[PROPERTY] of [TARGET] on stage'),
-                    disableMonitor: true,
-                    arguments: {PROPERTY: property, TARGET: {type: ArgumentType.STRING, menu: 'sprites'}}},
                 {opcode: 'setWorldProperty',
                     blockType: BlockType.COMMAND,
                     text: text('setWorldProperty', 'set [PROPERTY] on stage to [VALUE]'),
                     filter: [TargetType.SPRITE],
                     arguments: {PROPERTY: property, VALUE: number(0)}},
+                {opcode: 'goToWorldXY',
+                    blockType: BlockType.COMMAND,
+                    text: text('goToWorldXY', 'go to stage x: [X] y: [Y]'),
+                    filter: [TargetType.SPRITE],
+                    arguments: {X: number(0), Y: number(0)}},
+                '---',
+                {opcode: 'targetProperty',
+                    blockType: BlockType.REPORTER,
+                    text: text('targetProperty', '[PROPERTY] of [TARGET] in [SPACE]'),
+                    disableMonitor: true,
+                    arguments: {PROPERTY: {type: ArgumentType.STRING, menu: 'targetProperties', defaultValue: 'x'},
+                        TARGET: {type: ArgumentType.STRING, menu: 'positionTargets', defaultValue: '_mouse_'},
+                        SPACE: space(ContainerOption.SELF)}},
+                {opcode: 'convertPoint',
+                    blockType: BlockType.REPORTER,
+                    text: text('convertPoint', '[COORDINATE] of x: [X] y: [Y] from [FROM] to [TO]'),
+                    disableMonitor: true,
+                    arguments: {COORDINATE: coordinate,
+                        X: number(0),
+                        Y: number(0),
+                        FROM: space(ContainerOption.SELF),
+                        TO: space(ContainerOption.STAGE)}},
                 '---',
                 {opcode: 'effect',
                     blockType: BlockType.REPORTER,
@@ -121,7 +140,12 @@ class Containers {
                 effects: {acceptReporters: false, items: Effects.names.map(name => item(name, name))},
                 containers: {acceptReporters: true, items: 'getContainers'},
                 ancestorContainers: {acceptReporters: true, items: 'getAncestorContainers'},
-                sprites: {acceptReporters: true, items: 'getSprites'},
+                positionTargets: {acceptReporters: true, items: 'getPositionTargets'},
+                coordinateSpaces: {acceptReporters: true, items: 'getCoordinateSpaces'},
+                targetProperties: {acceptReporters: false,
+                    items: 'getTargetProperties',
+                    dependsOn: {argument: 'TARGET', field: 'positionTargets'}},
+                coordinates: {acceptReporters: false, items: [item('x', 'x position'), item('y', 'y position')]},
                 properties: {acceptReporters: false,
                     items: [item('x', 'x position'), item('y', 'y position'),
                         item('size', 'size'), item('direction', 'direction')]},
@@ -159,16 +183,71 @@ class Containers {
                 .map(({path}) => ({text: path, value: path}))];
     }
 
-    getSprites () {
+    getPositionTargets () {
         const editing = this.runtime.getEditingTarget();
-        const items = [];
-        if (editing && !editing.isStage) items.push({text: text('myself', 'myself'), value: '_myself_'});
-        for (const target of this.runtime.targets) {
-            if (target.isOriginal && !target.isStage && (!editing || target.sprite !== editing.sprite)) {
-                items.push({text: target.getName(), value: target.getName()});
+        return [{text: text('mouse', 'mouse-pointer'), value: '_mouse_'},
+            {text: text('myself', 'myself'), value: '_myself_'},
+            ...this.runtime.targets.filter(target => target.isOriginal && !target.isStage &&
+                (!editing || target.sprite !== editing.sprite))
+                .map(target => ({text: target.getName(), value: target.getName()}))];
+    }
+
+    getCoordinateSpaces () {
+        const containers = this.runtime.spriteContainers;
+        const current = containers.getContainingContainer(this.runtime.getEditingTarget());
+        return [{text: text('stage', 'Stage'), value: ContainerOption.STAGE},
+            {text: text('containingContainer', 'my container'), value: ContainerOption.SELF},
+            ...containers.serialize().filter(({path}) => !current || path !== current.path)
+                .map(({path}) => ({text: path, value: path}))];
+    }
+
+    getTargetProperties (editingTargetID, menuContext) {
+        const mouse = menuContext && menuContext.TARGET === '_mouse_';
+        const labels = {x: 'x position', y: 'y position', size: 'size', direction: 'direction'};
+        return (mouse ? ['x', 'y'] : numericProperties).map(value => ({text: text(value, labels[value]), value}));
+    }
+
+    targetProperty (args, util) {
+        const name = Cast.toString(args.TARGET);
+        const space = Cast.toString(args.SPACE);
+        const containers = this.runtime.spriteContainers;
+        const matrix = containers.getSpaceMatrix(space, util.target);
+        if (!matrix) return 0;
+        let position;
+        let value;
+        if (name === '_mouse_') {
+            if (!['x', 'y'].includes(args.PROPERTY)) return 0;
+            position = [util.ioQuery('mouse', 'getScratchX'), util.ioQuery('mouse', 'getScratchY')];
+        } else {
+            const target = name === '_myself_' ? util.target : this.runtime.getSpriteTargetByName(name);
+            if (!target || target.isStage) return 0;
+            switch (args.PROPERTY) {
+            case 'x':
+            case 'y': position = target.getWorldPosition(); break;
+            case 'direction': value = Transform.inverseDirection(matrix, target.getWorldDirection()); break;
+            case 'size': value = target.getWorldSize() / Math.hypot(matrix[0], matrix[1]); break;
+            default: return 0;
             }
         }
-        return items.length ? items : [{text: text('noSprites', 'no sprites'), value: ''}];
+        if (position) {
+            value = this._coordinate(Transform.inversePoint(matrix, position[0], position[1]), args.PROPERTY);
+        }
+        return Number.isFinite(value) ? value : 0;
+    }
+
+    convertPoint (args, util) {
+        return this._coordinate(this.runtime.spriteContainers.convertPoint(
+            Cast.toString(args.FROM), Cast.toString(args.TO),
+            Cast.toNumber(args.X), Cast.toNumber(args.Y), util.target),
+        args.COORDINATE);
+    }
+
+    _coordinate (position, coordinate) {
+        return position && (coordinate === 'x' || coordinate === 'y') ? position[coordinate === 'x' ? 0 : 1] : 0;
+    }
+
+    goToWorldXY (args, util) {
+        util.target.setWorldPosition(Cast.toNumber(args.X), Cast.toNumber(args.Y));
     }
 
     _container (value, util) {
@@ -215,19 +294,6 @@ class Containers {
             (container.transform || Transform.defaults)[args.PROPERTY] : 0;
     }
 
-    worldProperty (args, util) {
-        const name = Cast.toString(args.TARGET);
-        const target = name === '_myself_' ? util.target : this.runtime.getSpriteTargetByName(name);
-        if (!target || target.isStage) return 0;
-        switch (args.PROPERTY) {
-        case 'x': return target.getWorldPosition()[0];
-        case 'y': return target.getWorldPosition()[1];
-        case 'direction': return target.getWorldDirection();
-        case 'size': return target.getWorldSize();
-        default: return 0;
-        }
-    }
-
     setWorldProperty (args, util) {
         const target = util.target;
         const value = Cast.toNumber(args.VALUE);
@@ -237,7 +303,7 @@ class Containers {
         case 'y': {
             const position = target.getWorldPosition();
             position[args.PROPERTY === 'x' ? 0 : 1] = value;
-            target.setXY(...target.worldToLocal(position[0], position[1]));
+            target.setWorldPosition(position[0], position[1]);
             break;
         }
         case 'direction': target.setWorldDirection(value); break;
