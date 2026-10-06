@@ -1,0 +1,123 @@
+const {test} = require('tap');
+const Runtime = require('../../src/engine/runtime');
+const Sprite = require('../../src/sprites/sprite');
+
+test('project logs are bounded, serializable, immutable and isolated per runtime', t => {
+    const first = new Runtime();
+    const second = new Runtime();
+    for (const level of ['log', 'info', 'warn', 'error']) first.logger[level](level);
+    t.same(first.logger.getEntries().map(entry => entry.level), ['log', 'info', 'warn', 'error']);
+    t.same(second.logger.getEntries(), []);
+    first.logger.clear();
+    for (let i = 0; i < 1005; i++) first.logger.log(i);
+    const entries = first.logger.getEntries();
+    t.equal(entries.length, 1000);
+    t.equal(entries[0].message, '5');
+    t.ok(Object.isFrozen(entries[0]));
+    entries.length = 0;
+    t.equal(first.logger.getEntries().length, 1000);
+    first.logger.warn('x'.repeat(10000), {data: first});
+    const last = first.logger.getEntries().pop();
+    t.equal(last.message.length, 4096);
+    t.notOk('data' in last, 'no arbitrary objects retained');
+    t.doesNotThrow(() => JSON.stringify(last));
+    t.doesNotThrow(() => first.logger.error({toString: () => {
+        throw new Error('bad conversion');
+    }}));
+    first.quit();
+    second.quit();
+    t.end();
+});
+
+test('records retain clone identity and original block location after deletion', t => {
+    const runtime = new Runtime();
+    const sprite = new Sprite(null, runtime);
+    sprite.name = 'Enemy';
+    const original = sprite.createClone();
+    runtime.addTarget(original);
+    const clone = runtime.ext_scratch3_control._createClone('_myself_', original, {cloneId: 'boss'});
+    const thread = {target: clone, peekStack: () => 'block-at-warning'};
+    const captured = runtime.logger.captureContext(thread);
+    thread.peekStack = () => 'next-block';
+    runtime.disposeTarget(clone);
+    sprite.name = 'Renamed';
+    runtime.logger.warn('bad ID', {...captured, source: 'clones', code: 'INVALID_CLONE_ID'});
+    const entry = runtime.logger.getEntries()[0];
+    t.equal(entry.targetId, clone.id);
+    t.equal(entry.originalTargetId, original.id);
+    t.equal(entry.targetName, 'Enemy');
+    t.equal(entry.publicId, '@clone:boss');
+    t.equal(entry.blockId, 'block-at-warning');
+    t.ok(entry.isClone);
+    t.type(entry.timestamp, 'number');
+    runtime.logger.warn('from original', {targetId: original.id, blockId: 'other'});
+    t.equal(runtime.logger.getEntries()[1].targetName, 'Renamed', 'IDs alone capture context at logging time');
+    runtime.quit();
+    t.end();
+});
+
+test('duplicates preserve chronology and context, while subscribers receive bounded batches', async t => {
+    const runtime = new Runtime();
+    const logger = runtime.logger;
+    let calls = 0;
+    let latest;
+    const bad = logger.subscribe(() => {
+        throw new Error('broken UI');
+    });
+    const unsubscribe = logger.subscribe(entries => {
+        calls++;
+        latest = entries;
+    });
+    for (let i = 0; i < 10000; i++) logger.warn('repeat', {source: 'clones', blockId: 'a'});
+    t.equal(calls, 0, 'no UI callbacks in the project execution loop');
+    t.equal(logger.getEntries()[0].count, 10000);
+    logger.warn('repeat', {source: 'clones', blockId: 'b'});
+    logger.warn('repeat', {source: 'clones', blockId: 'a'});
+    logger.warn('repeat', {source: 'other', blockId: 'a'});
+    t.equal(logger.getEntries().length, 4, 'different sources/blocks and intervening entries stay distinct');
+    await new Promise(resolve => setTimeout(resolve, 80));
+    t.equal(calls, 1);
+    t.equal(latest[0].count, 10000);
+    t.ok(Object.isFrozen(latest));
+    logger.error('pending');
+    logger.clear();
+    t.same(latest, [], 'clear is immediate and cancels stale batches');
+    await new Promise(resolve => setTimeout(resolve, 80));
+    t.equal(calls, 2);
+    bad();
+    unsubscribe();
+    logger.log('without listeners');
+    t.equal(logger._timer, null);
+    runtime.quit();
+});
+
+test('stop/green flag retain history, project disposal clears it, and collection can be disabled', t => {
+    const runtime = new Runtime();
+    const logger = runtime.logger;
+    logger.log('before run');
+    runtime.stopAll();
+    runtime.greenFlag();
+    t.equal(logger.getEntries().length, 1);
+    logger.setEnabled(false);
+    logger.warn('ignored');
+    t.equal(logger.getEntries().length, 1);
+    logger.setEnabled(true);
+    let cleared = false;
+    logger.subscribe(entries => {
+        cleared = entries.length === 0;
+    });
+    runtime.dispose();
+    t.ok(cleared);
+    t.same(logger.getEntries(), []);
+    logger.log('next project');
+    t.equal(logger.getEntries().length, 1);
+    runtime.quit();
+    t.equal(logger.getEntries().length, 1, 'GUI quit/restart preserves logger and subscriptions');
+    t.equal(logger._timer, null);
+    logger.log('after quit');
+    t.equal(logger.getEntries().length, 2);
+    logger.dispose();
+    t.same(logger.getEntries(), []);
+    t.equal(logger._timer, null);
+    t.end();
+});
