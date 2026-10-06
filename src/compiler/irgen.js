@@ -854,7 +854,7 @@ class ScriptTreeGenerator {
                 y: this.descendInputOfBlock(block, 'Y').toType(InputType.NUMBER)
             });
         case 'motion_ifonedgebounce':
-            return new IntermediateStackBlock(StackOpcode.MOTION_IF_ON_EDGE_BOUNCE);
+            return new IntermediateStackBlock(StackOpcode.MOTION_IF_ON_EDGE_BOUNCE, {blockId: block.id});
         case 'motion_movesteps':
             return new IntermediateStackBlock(StackOpcode.MOTION_STEP, {
                 steps: this.descendInputOfBlock(block, 'STEPS').toType(InputType.NUMBER)

@@ -6,6 +6,7 @@ const ContainerOption = require('../../util/container-option');
 const Transform = require('../../util/container-transform');
 const Effects = require('../../util/container-effects');
 const formatMessage = require('format-message');
+const logCoordinateFailure = require('../../util/log-coordinate-transform-failure');
 
 const text = (id, defaultMessage) => formatMessage({id: `containers.${id}`, default: defaultMessage});
 const numericProperties = ['x', 'y', 'size', 'direction'];
@@ -297,7 +298,9 @@ class Containers {
     }
 
     goToWorldXY (args, util) {
-        util.target.setWorldPosition(Cast.toNumber(args.X), Cast.toNumber(args.Y));
+        if (util.target.setWorldPosition(Cast.toNumber(args.X), Cast.toNumber(args.Y)) === false) {
+            logCoordinateFailure(this.runtime, util.target, util.thread);
+        }
     }
 
     _container (value, util) {
@@ -348,10 +351,14 @@ class Containers {
         case 'y': {
             const position = target.getWorldPosition();
             position[args.PROPERTY === 'x' ? 0 : 1] = value;
-            target.setWorldPosition(position[0], position[1]);
+            if (target.setWorldPosition(position[0], position[1]) === false) {
+                logCoordinateFailure(this.runtime, target, util.thread);
+            }
             break;
         }
-        case 'direction': target.setWorldDirection(value); break;
+        case 'direction':
+            if (target.setWorldDirection(value) === false) logCoordinateFailure(this.runtime, target, util.thread);
+            break;
         case 'size': target.setWorldSize(value); break;
         }
     }

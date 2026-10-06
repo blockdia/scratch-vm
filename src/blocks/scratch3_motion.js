@@ -1,6 +1,7 @@
 const Cast = require('../util/cast');
 const MathUtil = require('../util/math-util');
 const Timer = require('../util/timer');
+const logCoordinateFailure = require('../util/log-coordinate-transform-failure');
 
 class Scratch3MotionBlocks {
     constructor (runtime) {
@@ -95,7 +96,14 @@ class Scratch3MotionBlocks {
             if (!goToTarget) return;
             [targetX, targetY] = goToTarget.getWorldPosition();
         }
-        return util.target.worldToLocal(targetX, targetY);
+        return this._commandLocalPosition(util.target, targetX, targetY, util.thread);
+    }
+
+    _commandLocalPosition (target, x, y, thread, blockId) {
+        const position = target.worldToLocal(x, y);
+        if (position.every(Number.isFinite)) return position;
+        logCoordinateFailure(this.runtime, target, thread, blockId);
+        return null;
     }
 
     goTo (args, util) {
@@ -135,7 +143,9 @@ class Scratch3MotionBlocks {
             if (!pointTarget) return;
             [targetX, targetY] = pointTarget.getWorldPosition();
         }
-        [targetX, targetY] = util.target.worldToLocal(targetX, targetY);
+        const position = this._commandLocalPosition(util.target, targetX, targetY, util.thread);
+        if (!position) return;
+        [targetX, targetY] = position;
         const dx = targetX - util.target.x;
         const dy = targetY - util.target.y;
         const direction = 90 - MathUtil.radToDeg(Math.atan2(dy, dx));
@@ -185,9 +195,9 @@ class Scratch3MotionBlocks {
     }
 
     ifOnEdgeBounce (args, util) {
-        this._ifOnEdgeBounce(util.target);
+        this._ifOnEdgeBounce(util.target, util.thread);
     }
-    _ifOnEdgeBounce (target) { // used by compiler
+    _ifOnEdgeBounce (target, thread, blockId) { // used by compiler
         const bounds = target.getBounds();
         if (!bounds) {
             return;
@@ -239,7 +249,8 @@ class Scratch3MotionBlocks {
         } else if (nearestEdge === 'bottom') {
             dy = 0 - Math.max(0.2, Math.abs(dy));
         }
-        const local = target.worldToLocal(origin[0] + dx, origin[1] - dy);
+        const local = this._commandLocalPosition(target, origin[0] + dx, origin[1] - dy, thread, blockId);
+        if (!local) return;
         const newDirection = 90 - MathUtil.radToDeg(Math.atan2(local[1] - target.y, local[0] - target.x));
         target.setDirection(newDirection);
         // Keep within the stage.

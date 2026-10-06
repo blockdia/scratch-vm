@@ -269,9 +269,12 @@ class RenderedTarget extends Target {
     }
 
     setWorldPosition (x, y) {
-        if (this.isStage || !Number.isFinite(x) || !Number.isFinite(y)) return;
+        if (this.isStage) return;
+        if (!Number.isFinite(x) || !Number.isFinite(y)) return false;
         const position = this.worldToLocal(x, y);
-        if (position.every(Number.isFinite)) this.setXY(...position);
+        if (!position.every(Number.isFinite)) return false;
+        this.setXY(...position);
+        return true;
     }
 
     // Transform the movement heading, independently of this sprite's costume rotation style.
@@ -292,13 +295,15 @@ class RenderedTarget extends Target {
 
     // Invert only the linear transform: container translation must not affect a heading.
     setWorldDirection (direction) {
-        if (!Number.isFinite(direction)) return;
+        if (this.isStage) return;
+        if (!Number.isFinite(direction)) return false;
         const matrix = this._containerTransform || ContainerTransform.identity;
         if (matrix.steps) {
             const p = this.getWorldPosition();
             const local = ContainerTransform.inverseDirection(matrix, direction, p[0], p[1]);
-            if (Number.isFinite(local)) this.setDirection(local);
-            return;
+            if (!Number.isFinite(local)) return false;
+            this.setDirection(local);
+            return true;
         }
         const angle = (90 - MathUtil.wrapClamp(direction, -179, 180)) * Math.PI / 180;
         const x = Math.cos(angle);
@@ -306,7 +311,9 @@ class RenderedTarget extends Target {
         const det = (matrix[0] * matrix[3]) - (matrix[1] * matrix[2]);
         const localX = ((matrix[3] * x) - (matrix[2] * y)) / det;
         const localY = ((matrix[0] * y) - (matrix[1] * x)) / det;
+        if (!Number.isFinite(localX) || !Number.isFinite(localY)) return false;
         this.setDirection(90 - (Math.atan2(localY, localX) * 180 / Math.PI));
+        return true;
     }
 
     setWorldSize (size) {
