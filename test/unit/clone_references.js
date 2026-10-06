@@ -74,12 +74,23 @@ for (const enabled of [false, true]) {
         const {vm, runtime, source} = setup();
         vm.extensionManager.loadExtensionIdSync('clones');
         vm.setCompilerOptions({enabled});
-        source.blocks.createBlock({id: 'create-warning', opcode: 'clones_createWithId',
+        source.blocks.createBlock({id: 'create-warning',
+            opcode: 'clones_createWithId',
             inputs: {TARGET: {name: 'TARGET', block: 'self'}, ID: {name: 'ID', block: 'invalid'}},
-            fields: {}, topLevel: true, shadow: false, parent: null, next: null});
+            fields: {},
+            topLevel: true,
+            shadow: false,
+            parent: null,
+            next: null});
         for (const [id, value] of [['self', '_myself_'], ['invalid', '123']]) {
-            source.blocks.createBlock({id, opcode: 'text', inputs: {}, fields: {TEXT: {name: 'TEXT', value}},
-                topLevel: false, shadow: true, parent: 'create-warning', next: null});
+            source.blocks.createBlock({id,
+                opcode: 'text',
+                inputs: {},
+                fields: {TEXT: {name: 'TEXT', value}},
+                topLevel: false,
+                shadow: true,
+                parent: 'create-warning',
+                next: null});
         }
         const thread = runtime._pushThread('create-warning', source, {stackClick: true});
         for (let i = 0; i < 5; i++) runtime._step();

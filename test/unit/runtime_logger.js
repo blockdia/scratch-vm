@@ -21,7 +21,9 @@ test('project logs are bounded, serializable, immutable and isolated per runtime
     t.equal(last.message.length, 4096);
     t.notOk('data' in last, 'no arbitrary objects retained');
     t.doesNotThrow(() => JSON.stringify(last));
-    t.doesNotThrow(() => first.logger.error({toString: () => { throw new Error('bad conversion'); }}));
+    t.doesNotThrow(() => first.logger.error({toString: () => {
+        throw new Error('bad conversion');
+    }}));
     first.quit();
     second.quit();
     t.end();
@@ -59,7 +61,9 @@ test('duplicates preserve chronology and context, while subscribers receive boun
     const logger = runtime.logger;
     let calls = 0;
     let latest;
-    const bad = logger.subscribe(() => { throw new Error('broken UI'); });
+    const bad = logger.subscribe(() => {
+        throw new Error('broken UI');
+    });
     const unsubscribe = logger.subscribe(entries => {
         calls++;
         latest = entries;
@@ -99,7 +103,9 @@ test('stop/green flag retain history, project disposal clears it, and collection
     t.equal(logger.getEntries().length, 1);
     logger.setEnabled(true);
     let cleared = false;
-    logger.subscribe(entries => { cleared = entries.length === 0; });
+    logger.subscribe(entries => {
+        cleared = entries.length === 0;
+    });
     runtime.dispose();
     t.ok(cleared);
     t.same(logger.getEntries(), []);

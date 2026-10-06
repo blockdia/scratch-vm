@@ -38,8 +38,14 @@ test('native and ID clones report one shared capacity diagnostic with the reques
         create();
         const entries = runtime.logger.getEntries();
         t.equal(entries.length, 1);
-        t.match(entries[0], {code: 'CLONE_LIMIT', source: 'clones', level: 'warn', count: 1,
-            subjectName: other.getName(), limit: '0', targetId: caller.id, blockId: 'creation-block'});
+        t.match(entries[0], {code: 'CLONE_LIMIT',
+            source: 'clones',
+            level: 'warn',
+            count: 1,
+            subjectName: other.getName(),
+            limit: '0',
+            targetId: caller.id,
+            blockId: 'creation-block'});
         t.match(entries[0].message, /Group\/\/Nested\/\/Two/);
         t.equal(runtime._cloneCounter, 0);
     }
@@ -52,7 +58,7 @@ test('native and ID clones report one shared capacity diagnostic with the reques
     t.end();
 });
 
-test('container preflight reports once even with free slots, and retains the source container name for instances', t => {
+test('container preflight reports once with free slots and retains the source name for instances', t => {
     const {vm, runtime, caller, other, util} = setup();
     const extension = new Containers(runtime);
     const containers = runtime.spriteContainers;
@@ -67,8 +73,13 @@ test('container preflight reports once even with free slots, and retains the sou
         runtime.logger.clear();
         extension[method]({CONTAINER: '@container:Group', ID: 'squad'}, util);
         t.equal(runtime.logger.getEntries().length, 1);
-        t.match(runtime.logger.getEntries()[0], {code: 'CLONE_LIMIT', source: 'containers', count: 1,
-            subjectName: 'Group', limit: '1', targetId: caller.id, blockId: 'creation-block'});
+        t.match(runtime.logger.getEntries()[0], {code: 'CLONE_LIMIT',
+            source: 'containers',
+            count: 1,
+            subjectName: 'Group',
+            limit: '1',
+            targetId: caller.id,
+            blockId: 'creation-block'});
         t.equal(runtime._cloneCounter, 0);
         t.equal(containers.cloneDefinitions.size, 0, 'no partial subtree');
         t.equal(runtime.lastContainerCloneId, '');
@@ -96,8 +107,11 @@ test('container ID failures report once with caller context and leave no partial
         runtime.logger.clear();
         extension.createWithId({CONTAINER: '@container:Group', ID: id}, util);
         t.equal(runtime.logger.getEntries().length, 1);
-        t.match(runtime.logger.getEntries()[0], {code: 'INVALID_CLONE_ID', source: 'containers', count: 1,
-            targetId: caller.id, blockId: 'creation-block'});
+        t.match(runtime.logger.getEntries()[0], {code: 'INVALID_CLONE_ID',
+            source: 'containers',
+            count: 1,
+            targetId: caller.id,
+            blockId: 'creation-block'});
         t.ok(runtime.logger.getEntries()[0].message.includes(id));
         t.equal(runtime._cloneCounter, 0);
         t.equal(containers.cloneReferences.size, 0);
@@ -134,7 +148,8 @@ test('a limit change during container creation logs once for the group and rolls
     t.equal(runtime._cloneCounter, 0);
     t.equal(runtime.spriteContainers.cloneDefinitions.size, 0);
     t.equal(runtime.logger.getEntries().length, 1);
-    t.match(runtime.logger.getEntries()[0], {source: 'containers', code: 'CLONE_LIMIT', subjectName: 'Group', count: 1});
+    t.match(runtime.logger.getEntries()[0],
+        {source: 'containers', code: 'CLONE_LIMIT', subjectName: 'Group', count: 1});
     vm.quit();
     t.end();
 });
