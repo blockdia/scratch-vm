@@ -23,4 +23,32 @@ const copyClip = value => {
     }
     return result;
 };
-module.exports = {margins, dimensions, stretch, validClip, copyClip};
+const perspective = value => {
+    if (!Array.isArray(value) || value.length !== 4 ||
+        !value.every(p => Array.isArray(p) && p.length === 2 &&
+            p.every(n => Number.isFinite(n) && Math.abs(n) <= 1000))) return null;
+    const base = [[0, 1], [1, 1], [1, 0], [0, 0]];
+    const points = base.map((p, i) => p.map((n, axis) => n + (value[i][axis] / 100)));
+    // Keep a strictly convex clockwise quad: crossed corners and collapsed edges are rejected atomically.
+    if (!points.every((a, i) => {
+        const b = points[(i + 1) % 4];
+        const c = points[(i + 2) % 4];
+        return ((b[0] - a[0]) * (c[1] - b[1])) - ((b[1] - a[1]) * (c[0] - b[0])) < -1e-5;
+    })) return null;
+    return value.map(p => p.slice());
+};
+const costumeMask = value => {
+    if (!value || typeof value.costume !== 'string' || !['alpha', 'luminance'].includes(value.mode) ||
+        !['local', 'stage'].includes(value.space) || typeof value.inverted !== 'boolean' ||
+        !['x', 'y', 'width', 'height'].every(k => Number.isFinite(value[k])) ||
+        value.width <= 0 || value.height <= 0) return null;
+    return {costume: value.costume,
+        mode: value.mode,
+        space: value.space,
+        inverted: value.inverted,
+        x: bounded(value.x, -LIMIT),
+        y: bounded(value.y, -LIMIT),
+        width: bounded(value.width, 0.01),
+        height: bounded(value.height, 0.01)};
+};
+module.exports = {margins, dimensions, stretch, validClip, copyClip, perspective, costumeMask};

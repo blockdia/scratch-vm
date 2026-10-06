@@ -120,6 +120,8 @@ class RenderedTarget extends Target {
         this.stretch = {x: 100, y: 100};
         this.nineSlice = null;
         this.clipShape = null;
+        this.perspective = null;
+        this.costumeMask = null;
 
         /**
          * Currently selected costume index.
@@ -447,6 +449,34 @@ class RenderedTarget extends Target {
         this.updateAllDrawableProperties();
     }
 
+    setPerspective (value) {
+        const normalized = GraphicGeometry.perspective(value);
+        if (this.isStage || (value !== null && !normalized)) return;
+        this.perspective = normalized;
+        this.updateAllDrawableProperties();
+    }
+
+    setCostumeMask (value) {
+        const normalized = GraphicGeometry.costumeMask(value);
+        if (this.isStage || (value !== null && (!normalized || this.getCostumeIndexByName(value.costume) < 0))) return;
+        this.costumeMask = normalized;
+        this.updateAllDrawableProperties();
+    }
+
+    getGraphicFrame () {
+        if (this.componentController) return this.componentController.getFrame();
+        const costume = this.getCostumes()[this.currentCostume];
+        if (!this.renderer || !costume) return [-50, 50, -50, 50];
+        const source = this.renderer.getSkinSize(costume.skinId);
+        const center = this.renderer.getSkinRotationCenter(costume.skinId);
+        const n = costume.nineSlice || {left: 0, right: 0, top: 0, bottom: 0};
+        const size = this.nineSlice ? [Math.max(this.nineSlice.width, Math.min(source[0], n.left + n.right)),
+            Math.max(this.nineSlice.height, Math.min(source[1], n.top + n.bottom))] : source;
+        const cx = center[0] * size[0] / Math.max(source[0], 0.01);
+        const cy = center[1] * size[1] / Math.max(source[1], 0.01);
+        return [-cx, size[0] - cx, cy - size[1], cy];
+    }
+
     setNineSliceMargins (value, partName = '') {
         const margins = GraphicGeometry.margins(value);
         if (this.isStage || !margins) return;
@@ -474,6 +504,17 @@ class RenderedTarget extends Target {
         else if (nine) throw new Error('Nine-slice requires an updated Blockdia renderer');
         if (this.renderer.updateDrawableClipShape) this.renderer.updateDrawableClipShape(id, this.clipShape, offset);
         else if (this.clipShape) throw new Error('Shape clipping requires an updated Blockdia renderer');
+        if (this.renderer.updateDrawablePerspective) {
+            this.renderer.updateDrawablePerspective(id, this.perspective ?
+                {frame: this.componentController ? this.getGraphicFrame() : null, corners: this.perspective} : null,
+            offset);
+        } else if (this.perspective) throw new Error('Perspective requires an updated Blockdia renderer');
+        const maskCostume = this.costumeMask &&
+            this.getCostumes()[this.getCostumeIndexByName(this.costumeMask.costume)];
+        if (this.renderer.updateDrawableCostumeMask) {
+            this.renderer.updateDrawableCostumeMask(id, maskCostume ?
+                {...this.costumeMask, skinId: maskCostume.skinId} : null);
+        } else if (maskCostume) throw new Error('Costume masks require an updated Blockdia renderer');
     }
 
     /**
@@ -681,11 +722,15 @@ class RenderedTarget extends Target {
         const newUnusedName = StringUtil.unusedName(newName, usedNames);
         this.getCostumes()[costumeIndex].name = newUnusedName;
         for (const target of this.sprite.clones) {
+            if (target.costumeMask && target.costumeMask.costume === oldName) {
+                target.costumeMask.costume = newUnusedName;
+            }
             if (target.componentController) {
                 for (const part of target.component.parts) {
                     if (part.costume === oldName) part.costume = newUnusedName;
                 }
             }
+            target.updateAllDrawableProperties();
         }
 
 
@@ -722,6 +767,9 @@ class RenderedTarget extends Target {
         }
 
         const deletedCostume = this.sprite.deleteCostumeAt(index);
+        for (const target of this.sprite.clones) {
+            if (target.costumeMask && target.costumeMask.costume === deletedCostume.name) target.costumeMask = null;
+        }
 
 
         if (index === this.currentCostume && index === originalCostumeCount - 1) {
@@ -730,6 +778,13 @@ class RenderedTarget extends Target {
             this.setCostume(this.currentCostume - 1);
         } else {
             this.setCostume(this.currentCostume);
+        }
+
+        for (const target of this.sprite.clones) {
+            if (target !== this) {
+                target.setCostume(target.currentCostume > index ?
+                    target.currentCostume - 1 : Math.min(target.currentCostume, this.sprite.costumes.length - 1));
+            }
         }
 
         this.runtime.requestTargetsUpdate(this);
@@ -1212,6 +1267,8 @@ class RenderedTarget extends Target {
             newClone.stretch = {...this.stretch};
             newClone.nineSlice = this.nineSlice ? {...this.nineSlice} : null;
             newClone.clipShape = GraphicGeometry.copyClip(this.clipShape);
+            newClone.perspective = GraphicGeometry.perspective(this.perspective);
+            newClone.costumeMask = GraphicGeometry.costumeMask(this.costumeMask);
             newClone.currentCostume = this.currentCostume;
             newClone.rotationStyle = this.rotationStyle;
             newClone.effects = Clone.simple(this.effects);
@@ -1260,6 +1317,8 @@ class RenderedTarget extends Target {
             newTarget.stretch = {...this.stretch};
             newTarget.nineSlice = this.nineSlice ? {...this.nineSlice} : null;
             newTarget.clipShape = GraphicGeometry.copyClip(this.clipShape);
+            newTarget.perspective = GraphicGeometry.perspective(this.perspective);
+            newTarget.costumeMask = GraphicGeometry.costumeMask(this.costumeMask);
             newTarget.currentCostume = this.currentCostume;
             newTarget.rotationStyle = this.rotationStyle;
             newTarget.effects = JSON.parse(JSON.stringify(this.effects));
@@ -1352,6 +1411,8 @@ class RenderedTarget extends Target {
             stretch: {...this.stretch},
             nineSlice: this.nineSlice ? {...this.nineSlice} : null,
             clipShape: GraphicGeometry.copyClip(this.clipShape),
+            perspective: GraphicGeometry.perspective(this.perspective),
+            costumeMask: GraphicGeometry.costumeMask(this.costumeMask),
             direction: this.direction,
             draggable: this.draggable,
             currentCostume: this.currentCostume,

@@ -71,7 +71,7 @@ class ComponentController {
 
     // Measure in unrotated costume coordinates, including the full thumb travel.
     // Size limits must not change with direction, effects, or the current value.
-    getSize () {
+    getFrame () {
         const target = this.target;
         const bounds = {left: Infinity, right: -Infinity, bottom: Infinity, top: -Infinity};
         for (const part of target.component.parts) {
@@ -85,11 +85,19 @@ class ComponentController {
                 bounds.top = Math.max(bounds.top, y + cy);
             }
         }
-        return [bounds.right - bounds.left, bounds.top - bounds.bottom];
+        return [bounds.left, bounds.right, bounds.bottom, bounds.top];
+    }
+
+    getSize () {
+        const [left, right, bottom, top] = this.getFrame();
+        return [right - left, top - bottom];
     }
 
     localPoint (x, y) {
         const target = this.target;
+        if (target.perspective && target.renderer.getDrawableLocalPosition) {
+            return target.renderer.getDrawableLocalPosition(target.drawableID, x, y);
+        }
         [x, y] = target.worldToLocal(x, y);
         const {direction, scale} = target._getRenderedDirectionAndScale();
         const angle = (90 - direction) * Math.PI / 180;

@@ -1,5 +1,6 @@
 const BlockType = require('../../extension-support/block-type');
 const ArgumentType = require('../../extension-support/argument-type');
+const TargetType = require('../../extension-support/target-type');
 const Cast = require('../../util/cast');
 const ContainerOption = require('../../util/container-option');
 const formatMessage = require('format-message');
@@ -23,6 +24,8 @@ class Clipping {
             blockType: BlockType.COMMAND,
             text: text(opcode, label),
             arguments: args});
+        const maskCommand = (opcode, label, args = {}) => ({...command(opcode, label, args),
+            filter: [TargetType.SPRITE]});
         const items = values => values.map(([value, label]) => ({value, text: text(value, label)}));
         return {id: 'clipping',
             name: text('name', 'Clipping'),
@@ -52,10 +55,29 @@ class Clipping {
                 {...command('property', '[PROPERTY] of clipping on [TARGET]',
                     {TARGET: target, PROPERTY: menu('properties', 'width')}),
                 blockType: BlockType.REPORTER,
-                disableMonitor: true}
+                disableMonitor: true},
+                '---',
+                maskCommand('setMask', 'set mask to costume [COSTUME] using [MODE]',
+                    {COSTUME: menu('costumes', '_current_'),
+                        MODE: menu('maskModes', 'alpha')}),
+                maskCommand('setMaskBounds', 'set mask in [SPACE] x: [X] y: [Y] width: [WIDTH] height: [HEIGHT]',
+                    {SPACE: box.SPACE, X: number(0), Y: number(0), WIDTH: number(100), HEIGHT: number(100)}),
+                maskCommand('setMaskRegion', 'set mask to [REGION]', {REGION: menu('maskRegions', 'normal')}),
+                maskCommand('clearMask', 'clear mask'),
+                {...maskCommand('maskEnabled', 'mask enabled?'), blockType: BlockType.BOOLEAN, disableMonitor: true},
+                {...maskCommand('maskProperty', 'mask [PROPERTY]', {PROPERTY: menu('maskProperties', 'costume')}),
+                    blockType: BlockType.REPORTER,
+                    disableMonitor: true}
             ],
             menus: {
                 objects: {acceptReporters: true, items: 'objects'},
+                costumes: {acceptReporters: true, items: 'costumes'},
+                maskModes: {acceptReporters: false, items: items([['alpha', 'alpha'], ['luminance', 'luminance']])},
+                maskRegions: {acceptReporters: false, items: items([['normal', 'normal'], ['inverse', 'inverted']])},
+                maskProperties: {acceptReporters: false,
+                    items: items([['costume', 'costume'], ['mode', 'mode'], ['space', 'coordinate space'],
+                        ['region', 'kept region'], ['x', 'center x'], ['y', 'center y'],
+                        ['width', 'width'], ['height', 'height']])},
                 spaces: {acceptReporters: false,
                     items: items([['local', 'object coordinates'], ['stage', 'stage coordinates']])},
                 regions: {acceptReporters: false, items: items([['inside', 'inside'], ['outside', 'outside']])},
@@ -72,6 +94,55 @@ class Clipping {
             {value: ContainerOption.SELF, text: text('myContainer', 'my container')},
             ...this.runtime.spriteContainers.serialize().map(c => ({value: ContainerOption.ORIGINAL_PREFIX + c.path,
                 text: `${text('container', 'container')}: ${c.path}`}))];
+    }
+    costumes () {
+        const target = this.runtime.getEditingTarget();
+        return [{value: '_current_', text: text('currentCostume', 'current costume')},
+            ...(target ? target.getCostumes().map(c => ({value: c.name, text: c.name})) : [])];
+    }
+    setMask (args, util) {
+        const target = util.target;
+        if (target.isStage || !['alpha', 'luminance'].includes(args.MODE)) return;
+        const name = Cast.toString(args.COSTUME);
+        const costume = name === '_current_' ? target.getCostumes()[target.currentCostume] :
+            target.getCostumes().find(c => c.name === name);
+        if (!costume) return;
+        const [left, right, bottom, top] = target.getGraphicFrame();
+        target.setCostumeMask({...target.costumeMask || {
+            space: 'local',
+            x: (left + right) / 2,
+            y: (bottom + top) / 2,
+            width: Math.max(right - left, 0.01),
+            height: Math.max(top - bottom, 0.01),
+            inverted: false},
+        costume: costume.name,
+        mode: args.MODE});
+    }
+    setMaskBounds (args, util) {
+        if (!util.target.costumeMask) return;
+        util.target.setCostumeMask({...util.target.costumeMask,
+            space: args.SPACE,
+            x: Cast.toNumber(args.X),
+            y: Cast.toNumber(args.Y),
+            width: Cast.toNumber(args.WIDTH),
+            height: Cast.toNumber(args.HEIGHT)});
+    }
+    setMaskRegion (args, util) {
+        if (!util.target.costumeMask || !['normal', 'inverse'].includes(args.REGION)) return;
+        util.target.setCostumeMask({...util.target.costumeMask, inverted: args.REGION === 'inverse'});
+    }
+    clearMask (args, util) {
+        util.target.setCostumeMask(null);
+    }
+    maskEnabled (args, util) {
+        return Boolean(util.target.costumeMask);
+    }
+    maskProperty (args, util) {
+        const m = util.target.costumeMask;
+        const numeric = ['x', 'y', 'width', 'height'].includes(args.PROPERTY);
+        if (!m) return numeric ? 0 : '';
+        if (args.PROPERTY === 'region') return m.inverted ? 'inverse' : 'normal';
+        return numeric || ['costume', 'mode', 'space'].includes(args.PROPERTY) ? m[args.PROPERTY] : '';
     }
     _object (args, util) {
         if (args.TARGET === '_myself_') return util.target.isStage ? null : util.target;

@@ -16,7 +16,7 @@ const setup = () => {
     const add = name => {
         const sprite = new Sprite(null, vm.runtime);
         sprite.name = name;
-        sprite.costumes = [{name: 'costume', skinId: 0}];
+        sprite.costumes = [{name: 'costume', skinId: 0, dataFormat: 'svg', assetId: 'fixture'}];
         const target = sprite.createClone();
         vm.runtime.addTarget(target);
         return target;
@@ -82,6 +82,49 @@ test('shape blocks address self and public container IDs, including independent 
     const stage = vm.runtime.getTargetForStage();
     clipping.circle(args, {target: stage});
     t.notOk(stage.clipShape, 'self on stage is a no-op');
+    vm.quit();
+    t.end();
+});
+
+test('perspective and masks clone independently, reject invalid quads and track costume lifecycle', t => {
+    const {vm, target, util, stretch, clipping, renderer} = setup();
+    renderer.getSkinRotationCenter = () => [84, 6];
+    target.sprite.costumes.push({name: 'Mask', skinId: 1, dataFormat: 'svg', assetId: 'fixture-mask'});
+    stretch.setPerspectiveCorner({CORNER: 'tl', X: 20, Y: 0}, util);
+    const before = JSON.stringify(target.perspective);
+    stretch.setPerspectiveCorner({CORNER: 'tr', X: -200, Y: 0}, util);
+    t.equal(JSON.stringify(target.perspective), before, 'crossed corners are rejected atomically');
+    clipping.setMask({COSTUME: 'Mask', MODE: 'alpha'}, util);
+    clipping.setMaskBounds({SPACE: 'stage', X: 10, Y: 20, WIDTH: 90, HEIGHT: 60}, util);
+    const clone = target.makeClone();
+    stretch.changePerspectiveCorner({CORNER: 'tl', X: 5, Y: 0}, {target: clone});
+    clipping.setMaskRegion({REGION: 'inverse'}, {target: clone});
+    t.equal(target.perspective[0][0], 20);
+    t.equal(clone.perspective[0][0], 25);
+    t.equal(target.costumeMask.inverted, false);
+    target.blocks.createBlock({id: 'mask-menu',
+        opcode: 'clipping_menu_costumes',
+        fields: {costumes: {name: 'costumes', value: 'Mask'}},
+        inputs: {},
+        topLevel: true,
+        shadow: true,
+        parent: null,
+        next: null});
+    target.renameCostume(1, 'Renamed mask');
+    t.equal(target.costumeMask.costume, 'Renamed mask');
+    t.equal(clone.costumeMask.costume, 'Renamed mask');
+    t.equal(target.blocks.getBlock('mask-menu').fields.costumes.value, 'Renamed mask');
+    target.onStopAll();
+    t.ok(target.costumeMask && target.perspective, 'stop preserves both states');
+    const saved = JSON.parse(vm.toJSON());
+    const sprite = saved.targets.find(s => s.name === target.getName());
+    t.same(sprite.perspective, target.perspective);
+    t.same(sprite.costumeMask, target.costumeMask);
+    t.ok(saved.extensions.includes('stretch') && saved.extensions.includes('clipping'));
+    target.deleteCostume(1);
+    t.notOk(target.costumeMask);
+    t.notOk(clone.costumeMask);
+    t.notOk(renderer._allDrawables[clone.drawableID].costumeMask, 'deleted source leaves no stale renderer mask');
     vm.quit();
     t.end();
 });

@@ -56,6 +56,12 @@ class ComponentRenderer extends FakeRenderer {
     updateDrawableNineSlice (id, value) {
         this._allDrawables[id].nineSlice = value;
     }
+    updateDrawablePerspective (id, value, offset) {
+        Object.assign(this._allDrawables[id], {perspective: value, geometryOffset: offset});
+    }
+    updateDrawableCostumeMask (id, value) {
+        this._allDrawables[id].costumeMask = value;
+    }
     updateDrawableClipShape (id, shape, offset) {
         Object.assign(this._allDrawables[id], {clipShape: shape, clipOffset: offset});
     }

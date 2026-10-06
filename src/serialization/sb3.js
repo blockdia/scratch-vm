@@ -647,6 +647,14 @@ const serializeTarget = function (target, extensions) {
             obj.clipShape = GraphicGeometry.copyClip(target.clipShape);
             extensions.add('clipping');
         }
+        if (target.perspective) {
+            obj.perspective = GraphicGeometry.perspective(target.perspective);
+            extensions.add('stretch');
+        }
+        if (target.costumeMask) {
+            obj.costumeMask = GraphicGeometry.costumeMask(target.costumeMask);
+            extensions.add('clipping');
+        }
         obj.direction = target.direction;
         obj.draggable = target.draggable;
         obj.rotationStyle = target.rotationStyle;
@@ -1398,6 +1406,10 @@ const parseScratchObject = function (object, runtime, extensions, zip, assets) {
         target.stretch = GraphicGeometry.stretch(object.stretch);
         target.nineSlice = GraphicGeometry.dimensions(object.nineSlice);
         target.clipShape = GraphicGeometry.copyClip(object.clipShape);
+        target.perspective = GraphicGeometry.perspective(object.perspective);
+        target.costumeMask = GraphicGeometry.costumeMask(object.costumeMask);
+        if (target.perspective) extensions.extensionIDs.add('stretch');
+        if (target.costumeMask) extensions.extensionIDs.add('clipping');
         if (object.stretch || object.nineSlice || (object.costumes || []).some(c => c.nineSlice)) {
             extensions.extensionIDs.add('stretch');
         }

@@ -1202,6 +1202,7 @@ class Blocks {
      */
     _getCostumeField (blockId) {
         const block = this.getBlock(blockId);
+        if (block && block.opcode === 'clipping_menu_costumes') return block.fields.costumes || null;
         if (block && Object.prototype.hasOwnProperty.call(block.fields, 'COSTUME')) {
             return block.fields.COSTUME;
         }

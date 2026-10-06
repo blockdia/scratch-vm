@@ -49,14 +49,31 @@ class Stretch {
                 reporter('border', 'nine-slice [BORDER] border of [PART]',
                     {PART: menu('parts', '_backgrounds_'), BORDER: menu('borders', 'left')}),
                 reporter('enabled', 'nine-slice enabled?', {}, true),
-                command('disable', 'turn off nine-slice')
+                command('disable', 'turn off nine-slice'),
+                '---',
+                command('setPerspectiveCorner', 'set perspective [CORNER] offset to x: [X] % y: [Y] %',
+                    {CORNER: menu('corners', 'tl'), X: number(10), Y: number(0)}),
+                command('changePerspectiveCorner', 'change perspective [CORNER] offset by x: [X] y: [Y]',
+                    {CORNER: menu('corners', 'tl'), X: number(5), Y: number(0)}),
+                command('setPerspective',
+                    'set perspective offsets % top left: [TLX] [TLY] top right: [TRX] [TRY] ' +
+                    'bottom right: [BRX] [BRY] bottom left: [BLX] [BLY]',
+                    Object.fromEntries(['TLX', 'TLY', 'TRX', 'TRY', 'BRX', 'BRY', 'BLX', 'BLY']
+                        .map(key => [key, number(0)]))),
+                reporter('perspectiveCorner', 'perspective [CORNER] [AXIS] offset',
+                    {CORNER: menu('corners', 'tl'), AXIS: axis}),
+                reporter('perspectiveEnabled', 'perspective enabled?', {}, true),
+                command('clearPerspective', 'clear perspective')
             ],
             menus: {
                 axes: {acceptReporters: false, items: items([['x', 'x'], ['y', 'y']])},
                 dimensions: {acceptReporters: false, items: items([['width', 'width'], ['height', 'height']])},
                 borders: {acceptReporters: false,
                     items: items([['left', 'left'], ['right', 'right'], ['top', 'top'], ['bottom', 'bottom']])},
-                parts: {acceptReporters: true, items: 'parts'}
+                parts: {acceptReporters: true, items: 'parts'},
+                corners: {acceptReporters: false,
+                    items: items([['tl', 'top left'], ['tr', 'top right'],
+                        ['br', 'bottom right'], ['bl', 'bottom left']])}
             }
         };
     }
@@ -124,6 +141,33 @@ class Stretch {
     }
     disable (args, util) {
         util.target.setNineSliceSize(null);
+    }
+    setPerspectiveCorner (args, util) {
+        const index = ['tl', 'tr', 'br', 'bl'].indexOf(args.CORNER);
+        if (index < 0) return;
+        const corners = util.target.perspective ? util.target.perspective.map(p => p.slice()) :
+            [[0, 0], [0, 0], [0, 0], [0, 0]];
+        corners[index] = [Cast.toNumber(args.X), Cast.toNumber(args.Y)];
+        util.target.setPerspective(corners);
+    }
+    changePerspectiveCorner (args, util) {
+        this.setPerspectiveCorner({...args,
+            X: this.perspectiveCorner({...args, AXIS: 'x'}, util) + Cast.toNumber(args.X),
+            Y: this.perspectiveCorner({...args, AXIS: 'y'}, util) + Cast.toNumber(args.Y)}, util);
+    }
+    setPerspective (args, util) {
+        util.target.setPerspective(['TL', 'TR', 'BR', 'BL'].map(key =>
+            [Cast.toNumber(args[`${key}X`]), Cast.toNumber(args[`${key}Y`])]));
+    }
+    perspectiveCorner (args, util) {
+        const point = util.target.perspective && util.target.perspective[['tl', 'tr', 'br', 'bl'].indexOf(args.CORNER)];
+        return point ? point[args.AXIS === 'y' ? 1 : 0] : 0;
+    }
+    perspectiveEnabled (args, util) {
+        return Boolean(util.target.perspective);
+    }
+    clearPerspective (args, util) {
+        util.target.setPerspective(null);
     }
 }
 module.exports = Stretch;
