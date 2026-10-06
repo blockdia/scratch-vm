@@ -342,6 +342,156 @@ test('stretch requires explicit targets and reference frames only address contai
     t.end();
 });
 
+test('clearing inactive container effects does not capture geometry, including runtime clones', t => {
+    const {vm, target, util, stretch, renderer} = setup();
+    vm.setSpriteFolderContainer('A', true);
+    const clone = vm.runtime.spriteContainers.createClone('A')[0];
+    let captures = 0;
+    let width = 100;
+    renderer.getContainerGeometryFrame = () => {
+        captures++;
+        return {x: 5, y: 10, width, height: 60};
+    };
+    const containers = vm.runtime.spriteContainers;
+    for (const owner of [target, clone]) {
+        const ownerUtil = {target: owner};
+        const id = containers.resolveReference('_mycontainer_', owner);
+        stretch.disable({TARGET: '_mycontainer_'}, ownerUtil);
+        stretch.clearPerspective({TARGET: '_mycontainer_'}, ownerUtil);
+        t.notOk(containers.get(id).geometry, 'resetting absent effects leaves no stored frame');
+    }
+    t.equal(captures, 0, 'reset commands never measure content');
+    width = 250;
+    stretch.setSize({TARGET: '@container:A', WIDTH: 300, HEIGHT: 100}, util);
+    t.equal(containers.get('A').geometry.frame.width, 250, 'first enabled effect uses current content');
+    t.notOk(containers.setGeometry('A', {frame: null}), 'an explicitly invalid frame is still rejected');
+    width = 400;
+    stretch.disable({TARGET: '@container:A'}, util);
+    stretch.clearPerspective({TARGET: '@container:A'}, util);
+    t.equal(containers.get('A').geometry.frame.width, 250, 'clearing existing geometry preserves its frame');
+    stretch.fitFrame({CONTAINER: '@container:A'}, util);
+    t.equal(containers.get('A').geometry.frame.width, 400, 'explicit reset captures current content');
+    stretch.setBorders({TARGET: '_mycontainer_', LEFT: 5, RIGHT: 5, TOP: 5, BOTTOM: 5}, {target: clone});
+    const cloneId = containers.resolveReference('_mycontainer_', clone);
+    t.equal(containers.get(cloneId).geometry.frame.width, 400, 'setting borders intentionally captures a frame');
+    width = 500;
+    stretch.setSize({TARGET: '_mycontainer_', WIDTH: 600, HEIGHT: 100}, {target: clone});
+    t.equal(containers.get(cloneId).geometry.frame.width, 400, 'later size changes keep the border reference');
+    t.same(vm.runtime.logger.getEntries(), []);
+    vm.quit();
+    t.end();
+});
+
+test('mask warnings preserve state, identify the caller and stay quiet for successful operations', t => {
+    const {vm, target, util, clipping, renderer} = setup();
+    renderer.getSkinRotationCenter = () => [84, 6];
+    util.thread = {target, peekStack: () => 'mask-command'};
+    const bounds = {SPACE: 'local', X: 0, Y: 0, WIDTH: 100, HEIGHT: 60};
+    const logger = vm.runtime.logger;
+    for (let i = 0; i < 3; i++) clipping.setMaskBounds(bounds, util);
+    t.notOk(target.costumeMask);
+    t.match(logger.getEntries()[0], {code: 'MASK_NOT_SET',
+        source: 'clipping',
+        level: 'warn',
+        count: 3,
+        targetId: target.id,
+        blockId: 'mask-command',
+        subjectName: target.getName()});
+    clipping.setMaskRegion({REGION: 'inverse'}, util);
+    t.equal(logger.getEntries()[0].count, 4);
+    logger.clear();
+    clipping.setMask({COSTUME: '_current_', MODE: 'alpha'}, util);
+    clipping.setMaskBounds(bounds, util);
+    clipping.setMaskRegion({REGION: 'inverse'}, util);
+    const before = {...target.costumeMask};
+    t.same(logger.getEntries(), [], 'valid configuration is quiet');
+    clipping.setMask({COSTUME: 'missing', MODE: 'alpha'}, util);
+    t.equal(logger.getEntries()[0].code, 'MASK_COSTUME_NOT_FOUND');
+    for (const patch of [{WIDTH: 0}, {HEIGHT: -1}, {X: Infinity}, {WIDTH: Infinity}]) {
+        clipping.setMaskBounds({...bounds, ...patch}, util);
+        t.same(target.costumeMask, before, 'invalid bounds preserve the entire mask');
+    }
+    t.match(logger.getEntries()[1], {code: 'INVALID_MASK_BOUNDS', count: 4});
+    target.sprite.costumes.push({name: 'other', skinId: 1});
+    target.setCostume(1);
+    t.same(target.costumeMask, before, 'costume switches keep the source and bounds');
+    clipping.setMask({COSTUME: '_current_', MODE: 'alpha'}, util);
+    t.same(target.costumeMask, {...before, costume: 'other'}, 'selecting a new source retains the bounds');
+    logger.clear();
+    clipping.clearMask({}, util);
+    clipping.clearMask({}, util);
+    t.equal(clipping.maskEnabled({}, util), false);
+    t.equal(clipping.maskProperty({PROPERTY: 'width'}, util), 0);
+    t.same(logger.getEntries(), [], 'clearing and reporting are quiet');
+    vm.quit();
+    t.end();
+});
+
+for (const enabled of [false, true]) {
+    test(`clipping prerequisites warn at the executing block and continue with compiler=${enabled}`, t => {
+        const {vm, target} = setup();
+        const previousDocument = global.document;
+        global.document = {hidden: true};
+        t.teardown(() => {
+            if (typeof previousDocument === 'undefined') delete global.document;
+            else global.document = previousDocument;
+        });
+        vm.extensionManager.loadExtensionIdSync('clipping');
+        vm.setCompilerOptions({enabled});
+        vm.setSpriteFolderContainer('A', true);
+        for (const [opcode, args, fields, code, subjectName] of [
+            ['setMaskBounds', {X: 0, Y: 0, WIDTH: 100, HEIGHT: 60}, {SPACE: 'local'}, 'MASK_NOT_SET', target.getName()],
+            ['setMaskRegion', {}, {REGION: 'inverse'}, 'MASK_NOT_SET', target.getName()],
+            ['setRegion', {TARGET: '_myself_'}, {REGION: 'outside'}, 'CLIP_NOT_SET', target.getName()],
+            ['setRegion', {TARGET: '@container:A'}, {REGION: 'outside'}, 'CLIP_NOT_SET', 'A']
+        ]) {
+            vm.runtime.logger.clear();
+            target.blocks.deleteAllBlocks();
+            target.blocks.createBlock({id: 'clipping-warning',
+                opcode: `clipping_${opcode}`,
+                inputs: Object.fromEntries(Object.keys(args).map(name => [name, {name, block: name}])),
+                fields: Object.fromEntries(Object.entries(fields).map(([name, value]) => [name, {name, value}])),
+                topLevel: true,
+                shadow: false,
+                parent: null,
+                next: 'after-warning'});
+            for (const [name, value] of Object.entries(args)) {
+                target.blocks.createBlock({id: name,
+                    opcode: 'text',
+                    inputs: {},
+                    fields: {TEXT: {name: 'TEXT', value}},
+                    topLevel: false,
+                    shadow: true,
+                    parent: 'clipping-warning',
+                    next: null});
+            }
+            target.blocks.createBlock({id: 'after-warning',
+                opcode: 'looks_show',
+                inputs: {},
+                fields: {},
+                topLevel: false,
+                shadow: false,
+                parent: 'clipping-warning',
+                next: null});
+            target.setVisible(false);
+            const thread = vm.runtime._pushThread('clipping-warning', target, {stackClick: true});
+            for (let i = 0; i < 5; i++) vm.runtime._step();
+            t.equal(Boolean(thread.isCompiled), enabled);
+            t.ok(target.visible, 'the next command still executes');
+            t.notOk(target.costumeMask);
+            t.notOk(target.clipShape);
+            t.equal(vm.runtime.logger.getEntries().length, 1);
+            t.match(vm.runtime.logger.getEntries()[0], {code,
+                subjectName,
+                blockId: 'clipping-warning',
+                targetId: target.id,
+                source: 'clipping'});
+        }
+        vm.quit();
+        t.end();
+    });
+}
+
 test('component borders have explicit part blocks and never fall back to another costume', async t => {
     const {vm, target, util, stretch} = setup();
     await vm.extensionManager.loadExtensionURL('stretch');

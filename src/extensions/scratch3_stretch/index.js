@@ -29,9 +29,33 @@ class Stretch {
         const menu = (name, defaultValue) => ({type: ArgumentType.STRING, menu: name, defaultValue});
         const axis = menu('axes', 'x');
         const dimension = menu('dimensions', 'width');
+        const bordersHelp = text('bordersHelp',
+            'Nine-slice keeps corners unscaled when resizing. Borders belong to the costume and are shared by ' +
+            'its clones; a costume without borders stretches as a whole. For components, sets all background ' +
+            'parts; for containers, stored in the container.');
+        const sizeHelp = text('sizeHelp',
+            'Output size before size and stretch are applied. Each clone keeps its own value.');
+        const frameHelp = text('frameHelp',
+            'The fixed reference area for nine-slice and perspective; it does not clip. It is captured from all ' +
+            'members, including hidden ones, when first needed and does not follow later changes. ' +
+            'Reset it to capture again.');
+        const partHelp = text('partBordersHelp',
+            'Edits the borders of this part\'s costume; other parts and clones using it are affected. ' +
+            'The slider thumb is not nine-sliced.');
+        const hints = {setBorders: bordersHelp,
+            border: bordersHelp,
+            setPartBorders: partHelp,
+            partBorder: partHelp,
+            setSize: sizeHelp,
+            setDimension: sizeHelp,
+            dimension: sizeHelp,
+            setFrame: frameHelp,
+            fitFrame: frameHelp,
+            frame: frameHelp};
         const command = (opcode, label, args = {}) => ({opcode,
             blockType: BlockType.COMMAND,
             text: text(opcode, label),
+            ...(hints[opcode] ? {tooltip: hints[opcode]} : {}),
             arguments: {TARGET: menu('objects', '_myself_'), ...args}});
         const reporter = (opcode, label, args = {}, boolean = false) => ({...command(opcode, label, args),
             blockType: boolean ? BlockType.BOOLEAN : BlockType.REPORTER,
@@ -95,7 +119,7 @@ class Stretch {
                 containerBlock(command('setFrame',
                     'set reference frame of [CONTAINER] to center x: [X] y: [Y] width: [WIDTH] height: [HEIGHT]',
                     {X: number(0), Y: number(0), WIDTH: number(200), HEIGHT: number(100)})),
-                containerBlock(command('fitFrame', 'set reference frame of [CONTAINER] to current content bounds')),
+                containerBlock(command('fitFrame', 'reset reference frame of [CONTAINER] to bounds of all members')),
                 containerBlock(reporter('frame', '[PROPERTY] of reference frame of [CONTAINER]',
                     {PROPERTY: menu('frameProperties', 'width')}))
             ],

@@ -1527,6 +1527,9 @@ class Runtime extends EventEmitter {
         let outLineNum = 0; // used for scratch-blocks `message${outLineNum}` and `args${outLineNum}`
         const convertPlaceholders = this._convertPlaceholders.bind(this, context);
         const extensionMessageContext = this.makeMessageContextForTarget();
+        if (blockInfo.tooltip) {
+            blockJSON.tooltip = maybeFormatMessage(blockInfo.tooltip, extensionMessageContext);
+        }
 
         // alternate between a block "arm" with text on it and an open slot for a substack
         while (inTextNum < blockText.length || inBranchNum < blockInfo.branchCount) {

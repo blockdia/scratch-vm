@@ -203,6 +203,9 @@ class SpriteContainers {
                 return false;
             }
         }
+        // Clearing an absent effect must not capture a reference frame before geometry is configured.
+        if (!container.geometry && !Object.prototype.hasOwnProperty.call(patch, 'frame') &&
+            Object.values(patch).every(value => value === null)) return true;
         const normalized = Geometry.container({frame: this.getGeometryFrame(path), ...container.geometry, ...patch});
         if (!normalized) return false;
         if (this.runtime.renderer && !this.runtime.renderer.getContainerGeometryFrame) {

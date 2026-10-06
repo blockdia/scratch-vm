@@ -24,6 +24,7 @@ const testExtensionInfo = {
             opcode: 'reporter',
             blockType: BlockType.REPORTER,
             text: 'simple text',
+            tooltip: {id: 'test.reporterHelp', default: 'Help for this reporter'},
             blockIconURI: 'invalid icon URI' // trigger the 'scratch_extension' path
         },
         {
@@ -138,6 +139,7 @@ const testButton = function (t, button) {
 
 const testReporter = function (t, reporter) {
     t.equal(reporter.json.type, 'test_reporter');
+    t.equal(reporter.json.tooltip, 'Help for this reporter');
     testCategoryInfo(t, reporter);
     t.equal(reporter.json.checkboxInFlyout, true);
     t.equal(reporter.json.outputShape, ScratchBlocksConstants.OUTPUT_SHAPE_ROUND);

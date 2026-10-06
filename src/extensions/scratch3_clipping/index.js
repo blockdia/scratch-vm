@@ -3,8 +3,27 @@ const ArgumentType = require('../../extension-support/argument-type');
 const TargetType = require('../../extension-support/target-type');
 const Cast = require('../../util/cast');
 const ContainerOption = require('../../util/container-option');
+const Geometry = require('../../util/graphic-geometry');
 const formatMessage = require('format-message');
 const text = (id, fallback) => formatMessage({id: `clipping.${id}`, default: fallback});
+const warnings = {
+    MASK_NOT_SET: {
+        id: 'clipping.maskNotSet',
+        default: 'No mask is set. Use "set mask to costume" first.'
+    },
+    CLIP_NOT_SET: {
+        id: 'clipping.clipNotSet',
+        default: 'No clipping shape is set. Set one first.'
+    },
+    MASK_COSTUME_NOT_FOUND: {
+        id: 'clipping.maskCostumeNotFound',
+        default: 'The mask costume does not exist in this sprite.'
+    },
+    INVALID_MASK_BOUNDS: {
+        id: 'clipping.invalidMaskBounds',
+        default: 'Mask bounds must be finite numbers, with width and height above 0. The mask was not changed.'
+    }
+};
 
 class Clipping {
     constructor (runtime) {
@@ -20,9 +39,31 @@ class Clipping {
             Y: number(0),
             WIDTH: number(100),
             HEIGHT: number(100)};
+        const shapeHelp = text('shapeHelp',
+            'x and y set the center. Object coordinates move with the sprite or container; stage coordinates ' +
+            'stay fixed. A circle\'s width is its diameter: radius 20 gives width 40.');
+        const maskHelp = text('maskHelp',
+            'Uses the costume selected when this block runs. Switching costumes later does not change it, but ' +
+            'editing its image does. The first mask fits the sprite; changing the source keeps position and size.');
+        const maskBoundsHelp = text('maskBoundsHelp',
+            'Requires a mask. x and y set the center; width and height must be above 0.');
+        const maskRegionHelp = text('maskRegionHelp',
+            'Requires a mask. Normal keeps the masked area; inverted keeps the rest.');
+        const regionHelp = text('regionHelp',
+            'Requires a clipping shape. Keeps its inside or outside.');
+        const hints = {rectangle: shapeHelp,
+            roundedRectangle: shapeHelp,
+            circle: shapeHelp,
+            ellipse: shapeHelp,
+            property: shapeHelp,
+            setRegion: regionHelp,
+            setMask: maskHelp,
+            setMaskBounds: maskBoundsHelp,
+            setMaskRegion: maskRegionHelp};
         const command = (opcode, label, args = {TARGET: target}) => ({opcode,
             blockType: BlockType.COMMAND,
             text: text(opcode, label),
+            ...(hints[opcode] ? {tooltip: hints[opcode]} : {}),
             arguments: args});
         const maskCommand = (opcode, label, args = {}) => ({...command(opcode, label, args),
             filter: [TargetType.SPRITE]});
@@ -32,19 +73,21 @@ class Clipping {
             color1: '#9966FF',
             blocks: [
                 command('rectangle',
-                    'clip [TARGET] to rectangle in [SPACE] x: [X] y: [Y] width: [WIDTH] height: [HEIGHT]', box),
+                    'clip [TARGET] to a rectangle using [SPACE] center x: [X] y: [Y] ' +
+                    'width: [WIDTH] height: [HEIGHT]', box),
                 command('roundedRectangle',
-                    'clip [TARGET] to rounded rectangle in [SPACE] x: [X] y: [Y] width: [WIDTH] height: [HEIGHT] ' +
-                    'radius: [RADIUS]',
+                    'clip [TARGET] to a rounded rectangle using [SPACE] center x: [X] y: [Y] ' +
+                    'width: [WIDTH] height: [HEIGHT] corner radius: [RADIUS]',
                     {...box, RADIUS: number(16)}),
-                command('circle', 'clip [TARGET] to circle in [SPACE] x: [X] y: [Y] radius: [RADIUS]',
+                command('circle', 'clip [TARGET] to a circle using [SPACE] center x: [X] y: [Y] radius: [RADIUS]',
                     {TARGET: target,
                         SPACE: box.SPACE,
                         X: number(0),
                         Y: number(0),
                         RADIUS: number(50)}),
                 command('ellipse',
-                    'clip [TARGET] to ellipse in [SPACE] x: [X] y: [Y] width: [WIDTH] height: [HEIGHT]', box),
+                    'clip [TARGET] to an ellipse using [SPACE] center x: [X] y: [Y] ' +
+                    'width: [WIDTH] height: [HEIGHT]', box),
                 command('setRegion', 'keep [REGION] of clipping on [TARGET]',
                     {TARGET: target, REGION: menu('regions', 'inside')}),
                 command('clear', 'clear clipping of [TARGET]'),
@@ -86,7 +129,7 @@ class Clipping {
                     items: items([['type', 'shape'], ['space', 'coordinate space'],
                         ['region', 'kept region'], ['x', 'center x'], ['y', 'center y'],
                         ['width', 'width'], ['height', 'height'],
-                        ['radius', 'radius'], ['left', 'left'], ['right', 'right'],
+                        ['radius', 'radius / corner radius'], ['left', 'left'], ['right', 'right'],
                         ['top', 'top'], ['bottom', 'bottom']])}
             }};
     }
@@ -98,8 +141,17 @@ class Clipping {
     }
     costumes () {
         const target = this.runtime.getEditingTarget();
-        return [{value: '_current_', text: text('currentCostume', 'current costume')},
+        return [{value: '_current_', text: text('currentCostume', 'current costume when run')},
             ...(target ? target.getCostumes().map(c => ({value: c.name, text: c.name})) : [])];
+    }
+    _warn (code, util, object = util.target) {
+        this.runtime.logger.warn(formatMessage(warnings[code]), {
+            ...this.runtime.logger.captureContext(util.thread),
+            targetId: util.target.id,
+            source: 'clipping',
+            code,
+            subjectName: object.containerId || object.getName()
+        });
     }
     setMask (args, util) {
         const target = util.target;
@@ -107,7 +159,10 @@ class Clipping {
         const name = Cast.toString(args.COSTUME);
         const costume = name === '_current_' ? target.getCostumes()[target.currentCostume] :
             target.getCostumes().find(c => c.name === name);
-        if (!costume) return;
+        if (!costume) {
+            this._warn('MASK_COSTUME_NOT_FOUND', util);
+            return;
+        }
         const [left, right, bottom, top] = target.getGraphicFrame();
         target.setCostumeMask({...target.costumeMask || {
             space: 'local',
@@ -120,16 +175,29 @@ class Clipping {
         mode: args.MODE});
     }
     setMaskBounds (args, util) {
-        if (!util.target.costumeMask) return;
-        util.target.setCostumeMask({...util.target.costumeMask,
+        if (!util.target.costumeMask) {
+            this._warn('MASK_NOT_SET', util);
+            return;
+        }
+        if (!['local', 'stage'].includes(args.SPACE)) return;
+        const mask = {...util.target.costumeMask,
             space: args.SPACE,
             x: Cast.toNumber(args.X),
             y: Cast.toNumber(args.Y),
             width: Cast.toNumber(args.WIDTH),
-            height: Cast.toNumber(args.HEIGHT)});
+            height: Cast.toNumber(args.HEIGHT)};
+        if (!Geometry.costumeMask(mask)) {
+            this._warn('INVALID_MASK_BOUNDS', util);
+            return;
+        }
+        util.target.setCostumeMask(mask);
     }
     setMaskRegion (args, util) {
-        if (!util.target.costumeMask || !['normal', 'inverse'].includes(args.REGION)) return;
+        if (!['normal', 'inverse'].includes(args.REGION)) return;
+        if (!util.target.costumeMask) {
+            this._warn('MASK_NOT_SET', util);
+            return;
+        }
         util.target.setCostumeMask({...util.target.costumeMask, inverted: args.REGION === 'inverse'});
     }
     clearMask (args, util) {
@@ -190,9 +258,12 @@ class Clipping {
     }
     setRegion (args, util) {
         const object = this._object(args, util);
-        if (object && object.clipShape && ['inside', 'outside'].includes(args.REGION)) {
-            this._set(args, util, {...object.clipShape, inverted: args.REGION === 'outside'});
+        if (!object || !['inside', 'outside'].includes(args.REGION)) return;
+        if (!object.clipShape) {
+            this._warn('CLIP_NOT_SET', util, object);
+            return;
         }
+        this._set(args, util, {...object.clipShape, inverted: args.REGION === 'outside'});
     }
     clear (args, util) {
         this._set(args, util, null);
