@@ -23,10 +23,10 @@ const copyClip = value => {
     }
     return result;
 };
-const perspective = value => {
+const perspectiveError = value => {
     if (!Array.isArray(value) || value.length !== 4 ||
         !value.every(p => Array.isArray(p) && p.length === 2 &&
-            p.every(n => Number.isFinite(n) && Math.abs(n) <= 1000))) return null;
+            p.every(n => Number.isFinite(n) && Math.abs(n) <= 1000))) return 'INVALID_PERSPECTIVE_OFFSETS';
     const base = [[0, 1], [1, 1], [1, 0], [0, 0]];
     const points = base.map((p, i) => p.map((n, axis) => n + (value[i][axis] / 100)));
     // Keep a strictly convex clockwise quad: crossed corners and collapsed edges are rejected atomically.
@@ -34,9 +34,10 @@ const perspective = value => {
         const b = points[(i + 1) % 4];
         const c = points[(i + 2) % 4];
         return ((b[0] - a[0]) * (c[1] - b[1])) - ((b[1] - a[1]) * (c[0] - b[0])) < -1e-5;
-    })) return null;
-    return value.map(p => p.slice());
+    })) return 'INVALID_PERSPECTIVE_QUAD';
+    return null;
 };
+const perspective = value => (perspectiveError(value) ? null : value.map(p => p.slice()));
 const costumeMask = value => {
     if (!value || typeof value.costume !== 'string' || !['alpha', 'luminance'].includes(value.mode) ||
         !['local', 'stage'].includes(value.space) || typeof value.inverted !== 'boolean' ||
@@ -61,4 +62,12 @@ const container = value => {
     nineSlice: dimensions(value.nineSlice),
     perspective: perspective(value.perspective)};
 };
-module.exports = {margins, dimensions, stretch, validClip, copyClip, perspective, costumeMask, container};
+module.exports = {margins,
+    dimensions,
+    stretch,
+    validClip,
+    copyClip,
+    perspectiveError,
+    perspective,
+    costumeMask,
+    container};

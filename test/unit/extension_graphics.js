@@ -13,6 +13,7 @@ const setup = () => {
     renderer.setDrawableContainerPaths = () => {};
     renderer.setDrawableContainerOrder = () => {};
     renderer.getCurrentSkinSize = () => [168, 12];
+    renderer.getContainerGeometryFrame = () => ({x: 0, y: 0, width: 100, height: 60});
     vm.attachRenderer(renderer);
     const add = name => {
         const sprite = new Sprite(null, vm.runtime);
@@ -86,6 +87,129 @@ test('shape blocks address self and public container IDs, including independent 
     vm.quit();
     t.end();
 });
+
+for (const reference of ['_myself_', '@container:A']) {
+    test(`perspective failures preserve state and report actionable warnings for ${reference}`, t => {
+        const {vm, target, util, stretch} = setup();
+        vm.setSpriteFolderContainer('A', true);
+        const logger = vm.runtime.logger;
+        const args = {TARGET: reference, CORNER: 'tl', X: 100, Y: 0};
+        util.thread = {target, peekStack: () => 'perspective-block'};
+        for (let i = 0; i < 3; i++) stretch.setPerspectiveCorner(args, util);
+        t.notOk(stretch.perspectiveEnabled(args, util), 'rejected first update does not enable perspective');
+        t.equal(stretch.perspectiveCorner({...args, AXIS: 'x'}, util), 0);
+        t.equal(logger.getEntries().length, 1);
+        t.match(logger.getEntries()[0], {level: 'warn',
+            source: 'stretch',
+            code: 'INVALID_PERSPECTIVE_QUAD',
+            count: 3,
+            targetId: target.id,
+            originalTargetId: target.id,
+            blockId: 'perspective-block',
+            subjectName: reference === '_myself_' ? 'A//one' : 'A'});
+        t.match(logger.getEntries()[0].message, /all four corners at once/);
+        stretch.setPerspectiveCorner({...args, X: 30}, util);
+        const previous = stretch.object(reference, target).perspective;
+        stretch.changePerspectiveCorner({...args, CORNER: 'tr', X: -80}, util);
+        t.same(stretch.object(reference, target).perspective, previous, 'crossing preserves every corner');
+        t.ok(stretch.perspectiveEnabled(args, util), 'rejected update preserves enabled state');
+        logger.clear();
+        for (const x of [1001, -1001, Infinity, -Infinity]) {
+            stretch.setPerspectiveCorner({...args, X: x}, util);
+            t.same(stretch.object(reference, target).perspective, previous);
+        }
+        t.match(logger.getEntries()[0], {code: 'INVALID_PERSPECTIVE_OFFSETS', count: 4});
+        const allCorners = {TARGET: reference,
+            TLX: 150,
+            TLY: 0,
+            TRX: 150,
+            TRY: 0,
+            BLX: 150,
+            BLY: 0,
+            BRX: 150,
+            BRY: 0};
+        stretch.setPerspective({...allCorners, TLX: 250}, util);
+        t.same(stretch.object(reference, target).perspective, previous, 'invalid bulk update is atomic');
+        t.equal(logger.getEntries().pop().code, 'INVALID_PERSPECTIVE_QUAD');
+        logger.clear();
+        for (const x of [150, 1000, -1000]) {
+            stretch.setPerspective({...allCorners, TLX: x, TRX: x, BLX: x, BRX: x}, util);
+            t.same(stretch.object(reference, target).perspective, [[x, 0], [x, 0], [x, 0], [x, 0]],
+                'valid bulk update accepts translation beyond a single-corner boundary');
+        }
+        stretch.clearPerspective(args, util);
+        t.notOk(stretch.perspectiveEnabled(args, util));
+        t.equal(stretch.perspectiveCorner({...args, AXIS: 'x'}, util), 0);
+        t.same(logger.getEntries(), [], 'successful updates, clear and reporters remain quiet');
+        vm.quit();
+        t.end();
+    });
+}
+
+for (const enabled of [false, true]) {
+    test(`perspective warnings identify all three commands and continue execution with compiler=${enabled}`, t => {
+        const {vm, target, util, stretch} = setup();
+        const previousDocument = global.document;
+        global.document = {hidden: true};
+        t.teardown(() => {
+            if (typeof previousDocument === 'undefined') delete global.document;
+            else global.document = previousDocument;
+        });
+        vm.extensionManager.loadExtensionIdSync('stretch');
+        vm.setCompilerOptions({enabled});
+        vm.setSpriteFolderContainer('A', true);
+        for (const reference of ['_myself_', '@container:A']) {
+            for (const opcode of ['setPerspectiveCorner', 'changePerspectiveCorner', 'setPerspective']) {
+                stretch.clearPerspective({TARGET: reference}, util);
+                vm.runtime.logger.clear();
+                target.blocks.deleteAllBlocks();
+                const args = opcode === 'setPerspective' ?
+                    {TLX: 100, TLY: 0, TRX: 0, TRY: 0, BLX: 0, BLY: 0, BRX: 0, BRY: 0} :
+                    {X: 100, Y: 0};
+                args.TARGET = reference;
+                target.blocks.createBlock({id: 'invalid-perspective',
+                    opcode: `stretch_${opcode}`,
+                    inputs: Object.fromEntries(Object.keys(args).map(name => [name, {name, block: name}])),
+                    fields: opcode === 'setPerspective' ? {} : {CORNER: {name: 'CORNER', value: 'tl'}},
+                    topLevel: true,
+                    shadow: false,
+                    parent: null,
+                    next: 'after-warning'});
+                for (const [name, value] of Object.entries(args)) {
+                    target.blocks.createBlock({id: name,
+                        opcode: 'text',
+                        inputs: {},
+                        fields: {TEXT: {name: 'TEXT', value}},
+                        topLevel: false,
+                        shadow: true,
+                        parent: 'invalid-perspective',
+                        next: null});
+                }
+                target.blocks.createBlock({id: 'after-warning',
+                    opcode: 'looks_show',
+                    inputs: {},
+                    fields: {},
+                    topLevel: false,
+                    shadow: false,
+                    parent: 'invalid-perspective',
+                    next: null});
+                target.setVisible(false);
+                const thread = vm.runtime._pushThread('invalid-perspective', target, {stackClick: true});
+                for (let i = 0; i < 5; i++) vm.runtime._step();
+                t.equal(Boolean(thread.isCompiled), enabled);
+                t.ok(target.visible, 'execution continues after the warning');
+                t.notOk(stretch.perspectiveEnabled({TARGET: reference}, util));
+                t.equal(vm.runtime.logger.getEntries().length, 1);
+                t.match(vm.runtime.logger.getEntries()[0], {code: 'INVALID_PERSPECTIVE_QUAD',
+                    targetId: target.id,
+                    blockId: 'invalid-perspective',
+                    subjectName: reference === '_myself_' ? 'A//one' : 'A'});
+            }
+        }
+        vm.quit();
+        t.end();
+    });
+}
 
 test('perspective and masks clone independently, reject invalid quads and track costume lifecycle', t => {
     const {vm, target, util, stretch, clipping, renderer} = setup();

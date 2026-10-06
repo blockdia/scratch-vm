@@ -2,9 +2,23 @@ const BlockType = require('../../extension-support/block-type');
 const ArgumentType = require('../../extension-support/argument-type');
 const ContainerOption = require('../../util/container-option');
 const Warp = require('../../util/container-geometry');
+const Geometry = require('../../util/graphic-geometry');
 const Cast = require('../../util/cast');
 const formatMessage = require('format-message');
 const text = (id, fallback) => formatMessage({id: `stretch.${id}`, default: fallback});
+const perspectiveWarnings = {
+    INVALID_PERSPECTIVE_OFFSETS: {
+        id: 'stretch.invalidPerspectiveOffsets',
+        default: 'Cannot set perspective: each offset must be a finite number between -1000% and 1000%. ' +
+            'The previous perspective has been kept.'
+    },
+    INVALID_PERSPECTIVE_QUAD: {
+        id: 'stretch.invalidPerspectiveQuad',
+        default: 'Cannot set perspective: corners must form a convex quadrilateral without crossing, ' +
+            'overlapping, or collapsing. The previous perspective has been kept. ' +
+            'To change multiple corners, use the block that sets all four corners at once.'
+    }
+};
 
 class Stretch {
     constructor (runtime) {
@@ -259,6 +273,20 @@ class Stretch {
         if (!target) return;
         target.setNineSliceSize(null);
     }
+    _setPerspective (target, corners, util) {
+        const code = Geometry.perspectiveError(corners);
+        if (code) {
+            this.runtime.logger.warn(formatMessage(perspectiveWarnings[code]), {
+                ...this.runtime.logger.captureContext(util.thread),
+                targetId: util.target.id,
+                source: 'stretch',
+                code,
+                subjectName: target.containerId || target.getName()
+            });
+            return;
+        }
+        target.setPerspective(corners);
+    }
     setPerspectiveCorner (args, util) {
         const target = this.object(args.TARGET, util.target);
         if (!target) return;
@@ -267,7 +295,7 @@ class Stretch {
         const corners = target.perspective ? target.perspective.map(p => p.slice()) :
             [[0, 0], [0, 0], [0, 0], [0, 0]];
         corners[index] = [Cast.toNumber(args.X), Cast.toNumber(args.Y)];
-        target.setPerspective(corners);
+        this._setPerspective(target, corners, util);
     }
     changePerspectiveCorner (args, util) {
         this.setPerspectiveCorner({...args,
@@ -277,8 +305,8 @@ class Stretch {
     setPerspective (args, util) {
         const target = this.object(args.TARGET, util.target);
         if (!target) return;
-        target.setPerspective(['TL', 'TR', 'BR', 'BL'].map(key =>
-            [Cast.toNumber(args[`${key}X`]), Cast.toNumber(args[`${key}Y`])]));
+        this._setPerspective(target, ['TL', 'TR', 'BR', 'BL'].map(key =>
+            [Cast.toNumber(args[`${key}X`]), Cast.toNumber(args[`${key}Y`])]), util);
     }
     perspectiveCorner (args, util) {
         const target = this.object(args.TARGET, util.target);
