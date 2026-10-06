@@ -187,7 +187,7 @@ class Scratch3LooksBlocks {
             bubbleState.onSpriteRight = true;
             this._renderBubble(target);
         } else {
-            this.runtime.renderer.updateDrawablePosition(bubbleState.drawableId, [
+            let position = [
                 bubbleState.onSpriteRight ? (
                     Math.max(
                         stageBounds.left, // Bubble should not extend past left edge of stage
@@ -201,7 +201,13 @@ class Scratch3LooksBlocks {
                 ),
                 // Bubble should not extend past the top of the stage
                 Math.min(stageBounds.top, targetBounds.bottom + bubbleHeight)
-            ]);
+            ];
+            const renderer = this.runtime.renderer;
+            if (renderer.getDrawableUnwarpedPosition) {
+                const local = renderer.getDrawableUnwarpedPosition(target.drawableID, ...position);
+                if (local.every(Number.isFinite)) position = local;
+            }
+            renderer.updateDrawablePosition(bubbleState.drawableId, position);
             this.runtime.requestRedraw();
         }
     }

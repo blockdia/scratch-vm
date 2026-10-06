@@ -249,9 +249,10 @@ class RenderedTarget extends Target {
         const inset = Math.min(15, Math.floor(Math.min(bounds.right - bounds.left, bounds.top - bounds.bottom) / 2));
         const sx = (this.runtime.stageWidth / 2) - inset;
         const sy = (this.runtime.stageHeight / 2) - inset;
-        return this.worldToLocal(
+        const local = this.worldToLocal(
             MathUtil.clamp(next[0], current[0] - sx - bounds.right, current[0] + sx - bounds.left),
             MathUtil.clamp(next[1], current[1] - sy - bounds.top, current[1] + sy - bounds.bottom));
+        return local.every(Number.isFinite) ? local : [x, y];
     }
 
     localToWorld (x, y) {
@@ -275,6 +276,7 @@ class RenderedTarget extends Target {
     // Transform the movement heading, independently of this sprite's costume rotation style.
     getWorldDirection () {
         const matrix = this._containerTransform || ContainerTransform.identity;
+        if (matrix.steps) return ContainerTransform.directionAt(matrix, this.x, this.y, this.direction);
         const angle = (90 - this.direction) * Math.PI / 180;
         const x = Math.cos(angle);
         const y = Math.sin(angle);
@@ -284,13 +286,19 @@ class RenderedTarget extends Target {
 
     getWorldSize () {
         const matrix = this._containerTransform || ContainerTransform.identity;
-        return this.size * Math.hypot(matrix[0], matrix[1]);
+        return this.size * (matrix.sizeScale || 1);
     }
 
     // Invert only the linear transform: container translation must not affect a heading.
     setWorldDirection (direction) {
         if (!Number.isFinite(direction)) return;
         const matrix = this._containerTransform || ContainerTransform.identity;
+        if (matrix.steps) {
+            const p = this.getWorldPosition();
+            const local = ContainerTransform.inverseDirection(matrix, direction, p[0], p[1]);
+            if (Number.isFinite(local)) this.setDirection(local);
+            return;
+        }
         const angle = (90 - MathUtil.wrapClamp(direction, -179, 180)) * Math.PI / 180;
         const x = Math.cos(angle);
         const y = Math.sin(angle);
@@ -303,7 +311,7 @@ class RenderedTarget extends Target {
     setWorldSize (size) {
         if (!Number.isFinite(size)) return;
         const matrix = this._containerTransform || ContainerTransform.identity;
-        this.setSize(size / Math.hypot(matrix[0], matrix[1]));
+        this.setSize(size / (matrix.sizeScale || 1));
     }
 
     get audioPlayer () {
@@ -381,7 +389,7 @@ class RenderedTarget extends Target {
      * @param {?boolean} force Force setting X/Y, in case of dragging
      */
     setXY (x, y, force) { // used by compiler
-        if (this.isStage) return;
+        if (this.isStage || !Number.isFinite(x) || !Number.isFinite(y)) return;
         if (this.dragging && !force) return;
         const oldX = this.x;
         const oldY = this.y;
@@ -477,10 +485,10 @@ class RenderedTarget extends Target {
         return [-cx, size[0] - cx, cy - size[1], cy];
     }
 
-    setNineSliceMargins (value, partName = '') {
+    setNineSliceMargins (value, partName = null) {
         const margins = GraphicGeometry.margins(value);
         if (this.isStage || !margins) return;
-        if (this.component && partName === '_backgrounds_') {
+        if (this.component && partName === null) {
             for (const part of this.component.parts) {
                 if (part.name !== 'thumb') this.setNineSliceMargins(value, part.name);
             }
@@ -1233,7 +1241,8 @@ class RenderedTarget extends Target {
         if (bounds.bottom < fence.bottom) {
             dy += fence.bottom - bounds.bottom;
         }
-        return this.worldToLocal(next[0] + dx, next[1] + dy);
+        const local = this.worldToLocal(next[0] + dx, next[1] + dy);
+        return local.every(Number.isFinite) ? local : [newX, newY];
     }
 
     /**

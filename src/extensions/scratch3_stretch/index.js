@@ -1,6 +1,7 @@
 const BlockType = require('../../extension-support/block-type');
 const ArgumentType = require('../../extension-support/argument-type');
-const TargetType = require('../../extension-support/target-type');
+const ContainerOption = require('../../util/container-option');
+const Warp = require('../../util/container-geometry');
 const Cast = require('../../util/cast');
 const formatMessage = require('format-message');
 const text = (id, fallback) => formatMessage({id: `stretch.${id}`, default: fallback});
@@ -17,55 +18,78 @@ class Stretch {
         const command = (opcode, label, args = {}) => ({opcode,
             blockType: BlockType.COMMAND,
             text: text(opcode, label),
-            arguments: args,
-            filter: [TargetType.SPRITE]});
+            arguments: {TARGET: menu('objects', '_myself_'), ...args}});
         const reporter = (opcode, label, args = {}, boolean = false) => ({...command(opcode, label, args),
             blockType: boolean ? BlockType.BOOLEAN : BlockType.REPORTER,
             disableMonitor: true});
+        const partBlock = block => ({...block,
+            componentTypes: ['button', 'toggle', 'slider', 'progress'],
+            arguments: Object.fromEntries(Object.entries(block.arguments).filter(([key]) => key !== 'TARGET'))});
+        const containerBlock = block => ({...block,
+            arguments: {CONTAINER: menu('containers', '_mycontainer_'),
+                ...Object.fromEntries(Object.entries(block.arguments).filter(([key]) => key !== 'TARGET'))}});
         const items = values => values.map(([value, label]) => ({value, text: text(value, label)}));
         return {
             id: 'stretch',
             name: text('name', 'Stretch'),
             color1: '#4287F5',
             blocks: [
-                command('set', 'set stretch to x: [X] % y: [Y] %', {X: number(100), Y: number(100)}),
-                command('change', 'change stretch by x: [X] y: [Y]', {X: number(10), Y: number(0)}),
-                command('setAxis', 'set [AXIS] stretch to [VALUE] %', {AXIS: axis, VALUE: number(100)}),
-                command('changeAxis', 'change [AXIS] stretch by [VALUE]', {AXIS: axis, VALUE: number(10)}),
-                reporter('axis', '[AXIS] stretch', {AXIS: axis}),
+                command('set', 'set stretch of [TARGET] to x: [X] % y: [Y] %', {X: number(100), Y: number(100)}),
+                command('change', 'change stretch of [TARGET] by x: [X] y: [Y]', {X: number(10), Y: number(0)}),
+                command('setAxis', 'set [AXIS] stretch of [TARGET] to [VALUE] %', {AXIS: axis, VALUE: number(100)}),
+                command('changeAxis', 'change [AXIS] stretch of [TARGET] by [VALUE]', {AXIS: axis, VALUE: number(10)}),
+                reporter('axis', '[AXIS] stretch of [TARGET]', {AXIS: axis}),
                 '---',
                 command('setBorders',
-                    'set nine-slice borders of [PART] left: [LEFT] right: [RIGHT] top: [TOP] bottom: [BOTTOM]',
-                    {PART: menu('parts', '_backgrounds_'),
+                    'set nine-slice borders of [TARGET] to left: [LEFT] right: [RIGHT] top: [TOP] bottom: [BOTTOM]',
+                    {LEFT: number(12), RIGHT: number(12), TOP: number(12), BOTTOM: number(12)}),
+                partBlock(command('setPartBorders',
+                    'set nine-slice borders of component part [PART] to ' +
+                    'left: [LEFT] right: [RIGHT] top: [TOP] bottom: [BOTTOM]',
+                    {PART: menu('parts'),
                         LEFT: number(12),
                         RIGHT: number(12),
                         TOP: number(12),
-                        BOTTOM: number(12)}),
-                command('setSize', 'set nine-slice size to width: [WIDTH] height: [HEIGHT]',
+                        BOTTOM: number(12)})),
+                command('setSize', 'set nine-slice size of [TARGET] to width: [WIDTH] height: [HEIGHT]',
                     {WIDTH: number(200), HEIGHT: number(60)}),
-                command('setDimension', 'set nine-slice [DIMENSION] to [VALUE]',
+                command('setDimension', 'set nine-slice [DIMENSION] of [TARGET] to [VALUE]',
                     {DIMENSION: dimension, VALUE: number(200)}),
-                reporter('dimension', 'nine-slice [DIMENSION]', {DIMENSION: dimension}),
-                reporter('border', 'nine-slice [BORDER] border of [PART]',
-                    {PART: menu('parts', '_backgrounds_'), BORDER: menu('borders', 'left')}),
-                reporter('enabled', 'nine-slice enabled?', {}, true),
-                command('disable', 'turn off nine-slice'),
+                reporter('dimension', 'nine-slice [DIMENSION] of [TARGET]', {DIMENSION: dimension}),
+                reporter('border', 'nine-slice [BORDER] border of [TARGET]',
+                    {BORDER: menu('borders', 'left')}),
+                partBlock(reporter('partBorder', 'nine-slice [BORDER] border of component part [PART]',
+                    {PART: menu('parts'), BORDER: menu('borders', 'left')})),
+                reporter('enabled', 'nine-slice enabled for [TARGET]?', {}, true),
+                command('disable', 'turn off nine-slice for [TARGET]'),
                 '---',
-                command('setPerspectiveCorner', 'set perspective [CORNER] offset to x: [X] % y: [Y] %',
+                command('setPerspectiveCorner', 'set perspective [CORNER] offset of [TARGET] to x: [X] % y: [Y] %',
                     {CORNER: menu('corners', 'tl'), X: number(10), Y: number(0)}),
-                command('changePerspectiveCorner', 'change perspective [CORNER] offset by x: [X] y: [Y]',
+                command('changePerspectiveCorner', 'change perspective [CORNER] offset of [TARGET] by x: [X] y: [Y]',
                     {CORNER: menu('corners', 'tl'), X: number(5), Y: number(0)}),
                 command('setPerspective',
-                    'set perspective offsets % top left: [TLX] [TLY] top right: [TRX] [TRY] ' +
-                    'bottom right: [BRX] [BRY] bottom left: [BLX] [BLY]',
+                    'set perspective offsets of [TARGET] to top left x: [TLX] % y: [TLY] % ' +
+                    'top right x: [TRX] % y: [TRY] % bottom left x: [BLX] % y: [BLY] % ' +
+                    'bottom right x: [BRX] % y: [BRY] %',
                     Object.fromEntries(['TLX', 'TLY', 'TRX', 'TRY', 'BRX', 'BRY', 'BLX', 'BLY']
                         .map(key => [key, number(0)]))),
-                reporter('perspectiveCorner', 'perspective [CORNER] [AXIS] offset',
+                reporter('perspectiveCorner', 'perspective [CORNER] [AXIS] offset of [TARGET]',
                     {CORNER: menu('corners', 'tl'), AXIS: axis}),
-                reporter('perspectiveEnabled', 'perspective enabled?', {}, true),
-                command('clearPerspective', 'clear perspective')
+                reporter('perspectiveEnabled', 'perspective enabled for [TARGET]?', {}, true),
+                command('clearPerspective', 'clear perspective of [TARGET]'),
+                '---',
+                containerBlock(command('setFrame',
+                    'set reference frame of [CONTAINER] to center x: [X] y: [Y] width: [WIDTH] height: [HEIGHT]',
+                    {X: number(0), Y: number(0), WIDTH: number(200), HEIGHT: number(100)})),
+                containerBlock(command('fitFrame', 'set reference frame of [CONTAINER] to current content bounds')),
+                containerBlock(reporter('frame', '[PROPERTY] of reference frame of [CONTAINER]',
+                    {PROPERTY: menu('frameProperties', 'width')}))
             ],
             menus: {
+                objects: {acceptReporters: true, items: 'objects'},
+                containers: {acceptReporters: true, items: 'containers'},
+                frameProperties: {acceptReporters: false,
+                    items: items([['x', 'x'], ['y', 'y'], ['width', 'width'], ['height', 'height']])},
                 axes: {acceptReporters: false, items: items([['x', 'x'], ['y', 'y']])},
                 dimensions: {acceptReporters: false, items: items([['width', 'width'], ['height', 'height']])},
                 borders: {acceptReporters: false,
@@ -77,47 +101,132 @@ class Stretch {
             }
         };
     }
+    objects () {
+        return [{value: '_myself_', text: text('myself', 'myself')}, ...this.containers()];
+    }
+    containers () {
+        return [{value: ContainerOption.SELF, text: text('myContainer', 'my container')},
+            ...this.runtime.spriteContainers.serialize().map(c => ({value: ContainerOption.ORIGINAL_PREFIX + c.path,
+                text: `${text('container', 'container')}: ${c.path}`}))];
+    }
+    object (reference, target) {
+        if (reference === '_myself_') return target.isStage ? null : target;
+        if (!reference) return null;
+        const containers = this.runtime.spriteContainers;
+        const id = containers.resolveReference(reference, target);
+        const c = id && containers.get(id);
+        if (!c) return null;
+        return {containerId: id,
+            stretch: c.stretch || {x: 100, y: 100},
+            nineSlice: c.geometry && c.geometry.nineSlice,
+            perspective: c.geometry && c.geometry.perspective,
+            geometry: c.geometry,
+            setStretch: value => containers.setStretch(id, value),
+            setNineSliceSize: value => containers.setGeometry(id, {nineSlice: value}),
+            setNineSliceMargins: value => containers.setGeometry(id, {borders: value}),
+            setPerspective: value => containers.setGeometry(id, {perspective: value})};
+    }
+    setFrame (args, util) {
+        const id = this.runtime.spriteContainers.resolveReference(args.CONTAINER, util.target);
+        if (id) {
+            this.runtime.spriteContainers.setGeometry(id,
+                {frame: {x: Cast.toNumber(args.X),
+                    y: Cast.toNumber(args.Y),
+                    width: Cast.toNumber(args.WIDTH),
+                    height: Cast.toNumber(args.HEIGHT)}});
+        }
+    }
+    fitFrame (args, util) {
+        const id = this.runtime.spriteContainers.resolveReference(args.CONTAINER, util.target);
+        const renderer = this.runtime.renderer;
+        if (id && renderer && renderer.getContainerGeometryFrame) {
+            this.runtime.spriteContainers.setGeometry(id, {frame: renderer.getContainerGeometryFrame(id)});
+        }
+    }
+    frame (args, util) {
+        const id = this.runtime.spriteContainers.resolveReference(args.CONTAINER, util.target);
+        if (!id || !['x', 'y', 'width', 'height'].includes(args.PROPERTY)) return 0;
+        return this.runtime.spriteContainers.getGeometryFrame(id)[args.PROPERTY];
+    }
     parts () {
         const target = this.runtime.getEditingTarget();
-        return [{value: '_backgrounds_', text: text('backgrounds', 'costume / component backgrounds')},
-            ...(target && target.component ? target.component.parts.filter(p => p.name !== 'thumb')
-                .map(p => ({value: p.name, text: text(`part_${p.name}`, p.name)})) : [])];
+        const parts = target && target.component && target.component.parts.filter(p => p.name !== 'thumb');
+        return parts && parts.length ? parts.map(p => ({value: p.name, text: text(`part_${p.name}`, p.name)})) :
+            [{value: '', text: text('noParts', 'no component parts')}];
     }
     set (args, util) {
-        util.target.setStretch({x: Cast.toNumber(args.X), y: Cast.toNumber(args.Y)});
+        const target = this.object(args.TARGET, util.target);
+        if (!target) return;
+        target.setStretch({x: Cast.toNumber(args.X), y: Cast.toNumber(args.Y)});
     }
     change (args, util) {
-        this.set({X: util.target.stretch.x + Cast.toNumber(args.X),
-            Y: util.target.stretch.y + Cast.toNumber(args.Y)}, util);
+        const target = this.object(args.TARGET, util.target);
+        if (!target) return;
+        this.set({...args,
+            X: target.stretch.x + Cast.toNumber(args.X),
+            Y: target.stretch.y + Cast.toNumber(args.Y)}, util);
     }
     setAxis (args, util) {
+        const target = this.object(args.TARGET, util.target);
+        if (!target) return;
         if (!['x', 'y'].includes(args.AXIS)) return;
-        util.target.setStretch({...util.target.stretch, [args.AXIS]: Cast.toNumber(args.VALUE)});
+        target.setStretch({...target.stretch, [args.AXIS]: Cast.toNumber(args.VALUE)});
     }
     changeAxis (args, util) {
         this.setAxis({...args, VALUE: this.axis(args, util) + Cast.toNumber(args.VALUE)}, util);
     }
     axis (args, util) {
-        return util.target.stretch[args.AXIS] || 0;
+        const target = this.object(args.TARGET, util.target);
+        if (!target) return 0;
+        return ['x', 'y'].includes(args.AXIS) ? target.stretch[args.AXIS] : 0;
     }
     setBorders (args, util) {
-        util.target.setNineSliceMargins({left: Cast.toNumber(args.LEFT),
+        const target = this.object(args.TARGET, util.target);
+        if (!target) return;
+        target.setNineSliceMargins({left: Cast.toNumber(args.LEFT),
             right: Cast.toNumber(args.RIGHT),
             top: Cast.toNumber(args.TOP),
-            bottom: Cast.toNumber(args.BOTTOM)}, Cast.toString(args.PART));
+            bottom: Cast.toNumber(args.BOTTOM)});
+    }
+    setPartBorders (args, util) {
+        const target = util.target;
+        if (!target.component || !target.component.parts.some(p => p.name !== 'thumb' && p.name === args.PART)) return;
+        target.setNineSliceMargins({left: Cast.toNumber(args.LEFT),
+            right: Cast.toNumber(args.RIGHT),
+            top: Cast.toNumber(args.TOP),
+            bottom: Cast.toNumber(args.BOTTOM)}, args.PART);
+    }
+    partBorder (args, util) {
+        const target = util.target;
+        if (!['left', 'right', 'top', 'bottom'].includes(args.BORDER)) return 0;
+        const part = target.component && target.component.parts.find(p => p.name !== 'thumb' && p.name === args.PART);
+        if (!part) return 0;
+        const costume = target.getCostumes()[target.getCostumeIndexByName(part.costume)];
+        return costume && costume.nineSlice ? costume.nineSlice[args.BORDER] : 0;
     }
     setSize (args, util) {
-        util.target.setNineSliceSize({width: Cast.toNumber(args.WIDTH), height: Cast.toNumber(args.HEIGHT)});
+        const target = this.object(args.TARGET, util.target);
+        if (!target) return;
+        target.setNineSliceSize({width: Cast.toNumber(args.WIDTH), height: Cast.toNumber(args.HEIGHT)});
     }
     setDimension (args, util) {
+        const target = this.object(args.TARGET, util.target);
+        if (!target) return;
         if (!['width', 'height'].includes(args.DIMENSION)) return;
-        const size = util.target.nineSlice || {width: this.dimension({DIMENSION: 'width'}, util),
-            height: this.dimension({DIMENSION: 'height'}, util)};
-        util.target.setNineSliceSize({...size, [args.DIMENSION]: Cast.toNumber(args.VALUE)});
+        const size = target.nineSlice || {width: this.dimension({...args, DIMENSION: 'width'}, util),
+            height: this.dimension({...args, DIMENSION: 'height'}, util)};
+        target.setNineSliceSize({...size, [args.DIMENSION]: Cast.toNumber(args.VALUE)});
     }
     dimension (args, util) {
-        if (!['width', 'height'].includes(args.DIMENSION) || util.target.isStage) return 0;
-        const target = util.target;
+        const target = this.object(args.TARGET, util.target);
+        if (!target) return 0;
+        if (!['width', 'height'].includes(args.DIMENSION) || target.isStage) return 0;
+        if (target.containerId) {
+            const g = Warp.prepare(target.geometry || {frame: this.runtime.spriteContainers.getGeometryFrame(
+                target.containerId)});
+            const axis = args.DIMENSION === 'width' ? g.x : g.y;
+            return axis.output[3] - axis.output[0];
+        }
         const part = target.component && target.component.parts.find(p => p.name !== 'thumb');
         const costume = target.getCostumes()[part ? target.getCostumeIndexByName(part.costume) : target.currentCostume];
         if (!costume || !target.renderer) return 0;
@@ -129,26 +238,36 @@ class Stretch {
             size[horizontal ? 0 : 1];
     }
     border (args, util) {
+        const target = this.object(args.TARGET, util.target);
+        if (!target) return 0;
         if (!['left', 'right', 'top', 'bottom'].includes(args.BORDER)) return 0;
-        const target = util.target;
-        const part = target.component && target.component.parts.find(p => (args.PART === '_backgrounds_' ?
-            p.name !== 'thumb' : p.name === args.PART));
+        if (target.containerId) {
+            return target.geometry && target.geometry.borders ?
+                target.geometry.borders[args.BORDER] : 0;
+        }
+        const part = target.component && target.component.parts.find(p => p.name !== 'thumb');
         const costume = target.getCostumes()[part ? target.getCostumeIndexByName(part.costume) : target.currentCostume];
         return costume && costume.nineSlice ? costume.nineSlice[args.BORDER] : 0;
     }
     enabled (args, util) {
-        return !util.target.isStage && Boolean(util.target.nineSlice);
+        const target = this.object(args.TARGET, util.target);
+        if (!target) return false;
+        return !target.isStage && Boolean(target.nineSlice);
     }
     disable (args, util) {
-        util.target.setNineSliceSize(null);
+        const target = this.object(args.TARGET, util.target);
+        if (!target) return;
+        target.setNineSliceSize(null);
     }
     setPerspectiveCorner (args, util) {
+        const target = this.object(args.TARGET, util.target);
+        if (!target) return;
         const index = ['tl', 'tr', 'br', 'bl'].indexOf(args.CORNER);
         if (index < 0) return;
-        const corners = util.target.perspective ? util.target.perspective.map(p => p.slice()) :
+        const corners = target.perspective ? target.perspective.map(p => p.slice()) :
             [[0, 0], [0, 0], [0, 0], [0, 0]];
         corners[index] = [Cast.toNumber(args.X), Cast.toNumber(args.Y)];
-        util.target.setPerspective(corners);
+        target.setPerspective(corners);
     }
     changePerspectiveCorner (args, util) {
         this.setPerspectiveCorner({...args,
@@ -156,18 +275,27 @@ class Stretch {
             Y: this.perspectiveCorner({...args, AXIS: 'y'}, util) + Cast.toNumber(args.Y)}, util);
     }
     setPerspective (args, util) {
-        util.target.setPerspective(['TL', 'TR', 'BR', 'BL'].map(key =>
+        const target = this.object(args.TARGET, util.target);
+        if (!target) return;
+        target.setPerspective(['TL', 'TR', 'BR', 'BL'].map(key =>
             [Cast.toNumber(args[`${key}X`]), Cast.toNumber(args[`${key}Y`])]));
     }
     perspectiveCorner (args, util) {
-        const point = util.target.perspective && util.target.perspective[['tl', 'tr', 'br', 'bl'].indexOf(args.CORNER)];
+        const target = this.object(args.TARGET, util.target);
+        if (!target) return 0;
+        if (!['x', 'y'].includes(args.AXIS)) return 0;
+        const point = target.perspective && target.perspective[['tl', 'tr', 'br', 'bl'].indexOf(args.CORNER)];
         return point ? point[args.AXIS === 'y' ? 1 : 0] : 0;
     }
     perspectiveEnabled (args, util) {
-        return Boolean(util.target.perspective);
+        const target = this.object(args.TARGET, util.target);
+        if (!target) return false;
+        return Boolean(target.perspective);
     }
     clearPerspective (args, util) {
-        util.target.setPerspective(null);
+        const target = this.object(args.TARGET, util.target);
+        if (!target) return;
+        target.setPerspective(null);
     }
 }
 module.exports = Stretch;

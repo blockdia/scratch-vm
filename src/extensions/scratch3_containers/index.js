@@ -261,8 +261,10 @@ class Containers {
             switch (args.PROPERTY) {
             case 'x':
             case 'y': position = target.getWorldPosition(); break;
-            case 'direction': value = Transform.inverseDirection(matrix, target.getWorldDirection()); break;
-            case 'size': value = target.getWorldSize() / Math.hypot(matrix[0], matrix[1]); break;
+            case 'direction':
+                value = Transform.inverseDirection(matrix, target.getWorldDirection(), ...target.getWorldPosition());
+                break;
+            case 'size': value = target.getWorldSize() / (matrix.sizeScale || 1); break;
             default: return 0;
             }
         }

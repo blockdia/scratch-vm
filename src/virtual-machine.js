@@ -1437,6 +1437,14 @@ class VirtualMachine extends EventEmitter {
         if (containers.setOrder(path, order, relative)) this._containerEdited(path);
     }
 
+    setSpriteContainerStretch (path, value) {
+        return this.runtime.spriteContainers.setStretch(path, value);
+    }
+
+    setSpriteContainerGeometry (path, value) {
+        return this.runtime.spriteContainers.setGeometry(path, value);
+    }
+
     setSpriteContainerTransform (path, transform) {
         const containers = this.runtime.spriteContainers;
         const changed = containers.setTransform(path, transform);

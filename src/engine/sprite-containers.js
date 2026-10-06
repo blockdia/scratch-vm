@@ -5,6 +5,7 @@ const Effects = require('../util/container-effects');
 const ContainerOption = require('../util/container-option');
 const TargetReferences = require('./target-references');
 const Cast = require('../util/cast');
+const Geometry = require('../util/graphic-geometry');
 
 const ancestors = name => {
     const parts = String(name).split('//');
@@ -33,6 +34,8 @@ class SpriteContainers {
             visible: value.visible,
             ...(value.effects ? {effects: {...value.effects}} : {}),
             ...(value.clip ? {clip: {...value.clip}} : {}),
+            ...(value.stretch ? {stretch: {...value.stretch}} : {}),
+            ...(value.geometry ? {geometry: Geometry.container(value.geometry)} : {}),
             ...(value.transform ? {transform: {...value.transform}} : {})} : null;
     }
 
@@ -120,6 +123,8 @@ class SpriteContainers {
                     !ancestors(`${entry.path}//_`).includes(entry.path)) continue;
                 this.definitions.set(entry.path, {visible: entry.visible !== false,
                     effects: Effects.normalize(entry.effects),
+                    stretch: entry.stretch ? Geometry.stretch(entry.stretch) : null,
+                    geometry: Geometry.container(entry.geometry),
                     clip: Effects.copyClip(entry.clip),
                     transform: Transform.normalize(entry.transform)});
             }
@@ -160,6 +165,43 @@ class SpriteContainers {
             throw new Error('Container transforms require a renderer with parent transform support');
         }
         container.transform = transform;
+        this.sync();
+        return true;
+    }
+
+    setStretch (path, value) {
+        const container = this.definitions.get(path) || this.cloneDefinitions.get(path);
+        if (!container || !value || ![value.x, value.y].every(Number.isFinite)) return false;
+        container.stretch = Geometry.stretch(value);
+        this.sync();
+        return true;
+    }
+
+    getGeometryFrame (path) {
+        const c = this.definitions.get(path) || this.cloneDefinitions.get(path);
+        if (!c) return null;
+        if (c.geometry) return {...c.geometry.frame};
+        const renderer = this.runtime.renderer;
+        return renderer && renderer.getContainerGeometryFrame ? renderer.getContainerGeometryFrame(path) :
+            {x: 0, y: 0, width: 100, height: 100};
+    }
+
+    setGeometry (path, patch) {
+        const container = this.definitions.get(path) || this.cloneDefinitions.get(path);
+        if (!container || !patch || typeof patch !== 'object' ||
+            Object.keys(patch).some(k => !['frame', 'borders', 'nineSlice', 'perspective'].includes(k))) return false;
+        for (const [key, normalize] of [['perspective', Geometry.perspective], ['borders', Geometry.margins],
+            ['nineSlice', Geometry.dimensions]]) {
+            if (Object.prototype.hasOwnProperty.call(patch, key) && patch[key] !== null && !normalize(patch[key])) {
+                return false;
+            }
+        }
+        const normalized = Geometry.container({frame: this.getGeometryFrame(path), ...container.geometry, ...patch});
+        if (!normalized) return false;
+        if (this.runtime.renderer && !this.runtime.renderer.getContainerGeometryFrame) {
+            throw new Error('Container geometry requires an updated Blockdia renderer');
+        }
+        container.geometry = normalized;
         this.sync();
         return true;
     }
@@ -246,7 +288,8 @@ class SpriteContainers {
             chain = this.getAncestry(id).map(key => this.definitions.get(key) || this.cloneDefinitions.get(key));
         }
         return chain.reduce((parent, container) =>
-            Transform.multiply(parent, Transform.matrix(container.transform)), Transform.identity);
+            Transform.multiply(parent, Transform.matrix(container.transform, container.stretch, container.geometry)),
+        Transform.identity);
     }
 
     localToWorld (path, x, y, target) {
@@ -291,6 +334,8 @@ class SpriteContainers {
                 visible: definition.visible,
                 ...(definition.effects ? {effects: {...definition.effects}} : {}),
                 ...(definition.clip ? {clip: {...definition.clip}} : {}),
+                ...(definition.stretch ? {stretch: {...definition.stretch}} : {}),
+                ...(definition.geometry ? {geometry: Geometry.container(definition.geometry)} : {}),
                 ...(definition.transform ? {transform: {...definition.transform}} : {}),
                 isClone: Boolean(instance)} : null;
         }).filter(Boolean);
@@ -339,6 +384,8 @@ class SpriteContainers {
                                 visible: container.visible,
                                 effects: container.effects ? {...container.effects} : null,
                                 clip: container.clip ? {...container.clip} : null,
+                                stretch: container.stretch ? {...container.stretch} : null,
+                                geometry: Geometry.container(container.geometry),
                                 transform: container.transform ? {...container.transform} : null});
                         }
                         return instances.get(container.id);
@@ -445,6 +492,7 @@ class SpriteContainers {
             const targets = this.runtime.targets.slice();
             if (extraTarget && !targets.includes(extraTarget)) targets.push(extraTarget);
             const memberships = [];
+            const changedTargets = [];
             const appearances = new Map();
             const used = new Set();
             for (const target of targets) {
@@ -459,15 +507,19 @@ class SpriteContainers {
                 }
                 const drawables = target.getDrawableIDs();
                 const matrix = definitions.reduce((parent, container) => {
-                    const world = Transform.multiply(parent, Transform.matrix(container.transform));
+                    const world = Transform.multiply(parent,
+                        Transform.matrix(container.transform, container.stretch, container.geometry));
                     appearances.set(container.id, {id: container.id,
                         matrix: world,
                         effects: container.effects,
-                        clip: container.clip});
+                        clip: container.clip,
+                        geometry: container.geometry});
                     return world;
                 }, Transform.identity);
-                const changed = !target._containerTransform || matrix.some((n, i) =>
-                    n !== target._containerTransform[i]);
+                const geometryKey = JSON.stringify(definitions.map(c => c.geometry));
+                const changed = !target._containerTransform || geometryKey !== target._containerGeometryKey ||
+                    matrix.some((n, i) => n !== target._containerTransform[i]);
+                target._containerGeometryKey = geometryKey;
                 // The first synchronization initializes new targets (including pen-down clones).
                 const previousPosition = changed && target._containerTransform && target.onTargetMoved ?
                     target.getWorldPosition() : null;
@@ -483,8 +535,8 @@ class SpriteContainers {
                         target.onTargetMoved(target, target.x, target.y, false, previousPosition);
                     }
                 }
-                // Bubbles use world bounds and stay upright at their normal size.
-                if (changed) target.emitVisualChange();
+                // Publish visual changes only after renderer geometry and memberships are synchronized.
+                if (changed) changedTargets.push(target);
                 const bubble = target.getCustomState('Scratch.looks');
                 if (bubble && bubble.drawableId !== null) drawables.push(bubble.drawableId);
                 memberships.push({containers, drawables});
@@ -501,6 +553,7 @@ class SpriteContainers {
                 renderer.setDrawableContainerPaths(StageLayering.SPRITE_LAYER, memberships);
                 this.refreshExecutableOrder();
             }
+            changedTargets.forEach(target => target.emitVisualChange());
             this.runtime.requestRedraw();
             this.runtime.requestContainersUpdate();
         } finally {

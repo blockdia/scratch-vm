@@ -51,4 +51,14 @@ const costumeMask = value => {
         width: bounded(value.width, 0.01),
         height: bounded(value.height, 0.01)};
 };
-module.exports = {margins, dimensions, stretch, validClip, copyClip, perspective, costumeMask};
+const container = value => {
+    if (!value || !value.frame || !['x', 'y', 'width', 'height'].every(k => Number.isFinite(value.frame[k])) ||
+        value.frame.width <= 0 || value.frame.height <= 0) return null;
+    return {frame: {x: bounded(value.frame.x, -LIMIT),
+        y: bounded(value.frame.y, -LIMIT),
+        ...dimensions(value.frame)},
+    borders: margins(value.borders),
+    nineSlice: dimensions(value.nineSlice),
+    perspective: perspective(value.perspective)};
+};
+module.exports = {margins, dimensions, stretch, validClip, copyClip, perspective, costumeMask, container};

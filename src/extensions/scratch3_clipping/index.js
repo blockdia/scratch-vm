@@ -26,7 +26,7 @@ class Clipping {
             arguments: args});
         const maskCommand = (opcode, label, args = {}) => ({...command(opcode, label, args),
             filter: [TargetType.SPRITE]});
-        const items = values => values.map(([value, label]) => ({value, text: text(value, label)}));
+        const items = values => values.map(([value, label, id = value]) => ({value, text: text(id, label)}));
         return {id: 'clipping',
             name: text('name', 'Clipping'),
             color1: '#9966FF',
@@ -60,9 +60,10 @@ class Clipping {
                 maskCommand('setMask', 'set mask to costume [COSTUME] using [MODE]',
                     {COSTUME: menu('costumes', '_current_'),
                         MODE: menu('maskModes', 'alpha')}),
-                maskCommand('setMaskBounds', 'set mask in [SPACE] x: [X] y: [Y] width: [WIDTH] height: [HEIGHT]',
+                maskCommand('setMaskBounds',
+                    'set mask position and size in [SPACE] center x: [X] y: [Y] width: [WIDTH] height: [HEIGHT]',
                     {SPACE: box.SPACE, X: number(0), Y: number(0), WIDTH: number(100), HEIGHT: number(100)}),
-                maskCommand('setMaskRegion', 'set mask to [REGION]', {REGION: menu('maskRegions', 'normal')}),
+                maskCommand('setMaskRegion', 'set mask display to [REGION]', {REGION: menu('maskRegions', 'normal')}),
                 maskCommand('clearMask', 'clear mask'),
                 {...maskCommand('maskEnabled', 'mask enabled?'), blockType: BlockType.BOOLEAN, disableMonitor: true},
                 {...maskCommand('maskProperty', 'mask [PROPERTY]', {PROPERTY: menu('maskProperties', 'costume')}),
@@ -75,8 +76,8 @@ class Clipping {
                 maskModes: {acceptReporters: false, items: items([['alpha', 'alpha'], ['luminance', 'luminance']])},
                 maskRegions: {acceptReporters: false, items: items([['normal', 'normal'], ['inverse', 'inverted']])},
                 maskProperties: {acceptReporters: false,
-                    items: items([['costume', 'costume'], ['mode', 'mode'], ['space', 'coordinate space'],
-                        ['region', 'kept region'], ['x', 'center x'], ['y', 'center y'],
+                    items: items([['costume', 'costume'], ['mode', 'sampling mode'], ['space', 'coordinate space'],
+                        ['region', 'display', 'maskRegion'], ['x', 'center x'], ['y', 'center y'],
                         ['width', 'width'], ['height', 'height']])},
                 spaces: {acceptReporters: false,
                     items: items([['local', 'object coordinates'], ['stage', 'stage coordinates']])},

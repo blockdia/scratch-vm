@@ -802,6 +802,7 @@ const serialize = function (runtime, targetId, {allowOptimization = true} = {}) 
         obj.spriteContainers = spriteContainers;
         extensions.add('containers');
         if (spriteContainers.some(c => c.clip)) extensions.add('clipping');
+        if (spriteContainers.some(c => c.stretch || c.geometry)) extensions.add('stretch');
     }
 
     obj.monitors = serializeMonitors(runtime.getMonitorState(), runtime, extensions);
@@ -1690,6 +1691,9 @@ const deserialize = async function (json, runtime, zip, isSingleSprite) {
             if (!isSingleSprite) {
                 runtime.spriteContainers.load(json.spriteContainers);
                 if ((json.spriteContainers || []).some(c => c.clip)) extensions.extensionIDs.add('clipping');
+                if ((json.spriteContainers || []).some(c => c.stretch || c.geometry)) {
+                    extensions.extensionIDs.add('stretch');
+                }
                 if (targets.some(target => runtime.spriteContainers.getTargetContainers(target).length)) {
                     extensions.extensionIDs.add('containers');
                 }

@@ -99,6 +99,7 @@ class ComponentController {
             return target.renderer.getDrawableLocalPosition(target.drawableID, x, y);
         }
         [x, y] = target.worldToLocal(x, y);
+        if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
         const {direction, scale} = target._getRenderedDirectionAndScale();
         const angle = (90 - direction) * Math.PI / 180;
         const dx = x - target.x;

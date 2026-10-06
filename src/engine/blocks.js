@@ -1151,7 +1151,8 @@ class Blocks {
     updateContainerReferences (renamedPaths) {
         for (const block of Object.values(this._blocks)) {
             if (!['containers_menu_containers', 'containers_menu_ancestorContainers',
-                'containers_menu_coordinateSpaces', 'clipping_menu_objects']
+                'containers_menu_coordinateSpaces', 'clipping_menu_objects', 'stretch_menu_objects',
+                'stretch_menu_containers']
                 .includes(block.opcode)) continue;
             const field = block.fields.containers || block.fields.ancestorContainers ||
                 block.fields.coordinateSpaces || block.fields.objects;
