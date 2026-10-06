@@ -5,6 +5,7 @@ const Effects = require('../util/container-effects');
 const ContainerOption = require('../util/container-option');
 const TargetReferences = require('./target-references');
 const Cast = require('../util/cast');
+const logCloneLimit = require('../util/log-clone-limit');
 
 const ancestors = name => {
     const parts = String(name).split('//');
@@ -92,11 +93,17 @@ class SpriteContainers {
         return chain.length > 1 ? this.getPublicId(chain[chain.length - 2]) : '';
     }
 
-    _reserveCloneReference (requestedId = '') {
+    _reserveCloneReference (requestedId = '', onFailure = () => {}) {
         const suffix = Cast.toString(requestedId);
-        if (suffix.trim() !== suffix || /^\d+$/.test(suffix) || TargetReferences.isReference(suffix)) return null;
+        if (suffix.trim() !== suffix || /^\d+$/.test(suffix) || TargetReferences.isReference(suffix)) {
+            onFailure('INVALID_CLONE_ID');
+            return null;
+        }
         const reference = ContainerOption.CLONE_PREFIX + (suffix || this.nextCloneId++);
-        if (this.cloneReferences.has(reference)) return null;
+        if (this.cloneReferences.has(reference)) {
+            onFailure('CLONE_ID_IN_USE');
+            return null;
+        }
         this.cloneReferences.set(reference, null);
         return reference;
     }
@@ -304,10 +311,18 @@ class SpriteContainers {
         if (!this.definitions.has(path) && !this.cloneDefinitions.has(path)) return [];
         const sources = runtime.targets.filter(target => !target.isStage &&
             this.getTargetContainers(target).some(container => container.id === path));
-        if (!sources.length || !runtime.clonesAvailable(sources.length)) return [];
+        if (!sources.length) return [];
+        const logContext = {...options.logContext,
+            source: 'containers',
+            subjectName: this.cloneDefinitions.get(path)?.path || path};
+        if (!runtime.clonesAvailable(sources.length)) {
+            logCloneLimit(runtime, logContext.subjectName, logContext);
+            if (options.onFailure) options.onFailure('CLONE_LIMIT');
+            return [];
+        }
         const renderer = runtime.renderer;
         if (renderer) sources.sort((a, b) => a.getLayerOrder() - b.getLayerOrder());
-        const rootReference = this._reserveCloneReference(options.cloneId);
+        const rootReference = this._reserveCloneReference(options.cloneId, options.onFailure);
         if (!rootReference) return [];
         const references = [rootReference];
         const instances = new Map();
@@ -343,7 +358,10 @@ class SpriteContainers {
                         }
                         return instances.get(container.id);
                     });
-                    const clone = source.makeClone({containerPaths: paths, startHats: false});
+                    const clone = source.makeClone({containerPaths: paths,
+                        startHats: false,
+                        logContext,
+                        onFailure: options.onFailure});
                     if (!clone) {
                         rollback();
                         return [];

@@ -24,6 +24,8 @@ For more technical information, read the code in src/compiler.
 
 ## Public API
 
+Blockdia's internal project diagnostics API is documented in [Runtime logger](docs/runtime-logger.md).
+
 This section was too out of date to be useful. We hope to re-add it as some point.
 
 ## License

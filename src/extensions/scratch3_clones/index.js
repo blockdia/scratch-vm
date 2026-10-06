@@ -5,6 +5,19 @@ const formatMessage = require('format-message');
 
 const text = (id, message) => formatMessage({id: `clones.${id}`, default: message});
 
+const creationWarnings = {
+    INVALID_CLONE_ID: {
+        id: 'clones.invalidId',
+        default: 'Cannot create clone: ID "{id}" must not contain leading or trailing whitespace, consist only of ' +
+            'digits, or start with a reserved reference prefix.'
+    },
+    CLONE_ID_IN_USE: {id: 'clones.idInUse', default: 'Cannot create clone: ID "@clone:{id}" is already in use.'},
+    CANNOT_CLONE_STAGE: {id: 'clones.cannotCloneStage', default: 'Cannot create clone of the Stage.'},
+    CLONE_TARGET_NOT_FOUND: {
+        id: 'clones.targetNotFound', default: 'Cannot create clone: target "{target}" does not exist.'
+    }
+};
+
 class Clones {
     constructor (runtime) {
         this.runtime = runtime;
@@ -101,8 +114,21 @@ class Clones {
     }
 
     createWithId (args, util) {
-        const clone = this.runtime.ext_scratch3_control._createClone(Cast.toString(args.TARGET), util.target,
-            {cloneId: Cast.toString(args.ID), startHats: false});
+        const id = Cast.toString(args.ID);
+        const target = Cast.toString(args.TARGET);
+        const context = this.runtime.logger.captureContext(util.thread);
+        const clone = this.runtime.ext_scratch3_control._createClone(target, util.target, {
+            cloneId: id,
+            startHats: false,
+            logContext: {...context, targetId: util.target.id, source: 'clones'},
+            onFailure: code => {
+                // The shared creation path already records capacity failures, including native clones.
+                if (code === 'CLONE_LIMIT') return;
+                this.runtime.logger.warn(formatMessage(creationWarnings[code], {id, target}), {
+                    ...context, targetId: util.target.id, source: 'clones', code
+                });
+            }
+        });
         // Hats can evaluate blocks immediately. Preserve the caller's execution context.
         if (clone) util.startHats('control_start_as_clone', null, clone);
     }

@@ -163,7 +163,10 @@ class Scratch3ControlBlocks {
         }
 
         // If clone target is not found, return
-        if (!cloneTarget) return;
+        if (!cloneTarget) {
+            if (options.onFailure) options.onFailure('CLONE_TARGET_NOT_FOUND');
+            return;
+        }
 
         // Create clone
         const newClone = cloneTarget.makeClone({...options, startHats: false});

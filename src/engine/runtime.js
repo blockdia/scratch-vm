@@ -18,6 +18,7 @@ const maybeFormatMessage = require('../util/maybe-format-message');
 const StageLayering = require('./stage-layering');
 const SpriteContainers = require('./sprite-containers');
 const TargetReferences = require('./target-references');
+const RuntimeLogger = require('./runtime-logger');
 const Variable = require('./variable');
 const xmlEscape = require('../util/xml-escape');
 const ScratchLinkWebSocket = require('../util/scratch-link-websocket');
@@ -313,6 +314,7 @@ class Runtime extends EventEmitter {
          */
         this._cloneCounter = 0;
         this.targetReferences = new TargetReferences();
+        this.logger = new RuntimeLogger(this);
         // Global creation result, available to scripts, monitors and manual reporter evaluation.
         this.lastCloneId = '';
         this.lastContainerCloneId = '';
@@ -2383,6 +2385,7 @@ class Runtime extends EventEmitter {
 
         this.targets.map(this.disposeTarget, this);
         this.targetReferences.reset();
+        this.logger.clear();
         this.lastCloneId = '';
         this.lastContainerCloneId = '';
         this.spriteContainers.load([]);
@@ -3524,10 +3527,13 @@ class Runtime extends EventEmitter {
     }
 
     /**
-     * Quit the Runtime, clearing any handles which might keep the process alive.
-     * Do not use the runtime after calling this method. This method is meant for test shutdown.
+     * Stop the frame loop and flush pending log notifications.
+     * Preserve project state and listeners so hosts can restart the Runtime after loading a project.
      */
     quit () {
+        // Deliver pending logs now and cancel their notification timer before stopping the frame loop.
+        // Do not dispose the logger: the GUI also calls quit() temporarily when loading a project.
+        this.logger.flush();
         if (!this.frameLoop.running) {
             return;
         }

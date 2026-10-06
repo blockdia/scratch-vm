@@ -29,6 +29,72 @@ const setup = () => {
     return {vm, runtime, add, source, extension, create};
 };
 
+test('clone creation reports specific failures once and leaves normal existence queries quiet', t => {
+    const {vm, runtime, source, extension, create} = setup();
+    const cases = [
+        ['123', 'INVALID_CLONE_ID'], [' boss', 'INVALID_CLONE_ID'], ['boss ', 'INVALID_CLONE_ID'],
+        ['@clone:boss', 'INVALID_CLONE_ID'], ['@sprite:boss', 'INVALID_CLONE_ID'],
+        ['@container:boss', 'INVALID_CLONE_ID'], ['@container-clone:boss', 'INVALID_CLONE_ID']
+    ];
+    for (const [id, code] of cases) {
+        runtime.logger.clear();
+        t.equal(create(id), '');
+        const entries = runtime.logger.getEntries();
+        t.equal(entries.length, 1);
+        t.equal(entries[0].code, code);
+        t.equal(entries[0].source, 'clones');
+        t.equal(entries[0].level, 'warn');
+        t.equal(entries[0].targetId, source.id);
+        t.equal(runtime._cloneCounter, 0);
+    }
+    runtime.logger.clear();
+    t.equal(create(''), '@clone:1', 'empty suffix still allocates an automatic ID');
+    t.equal(create('boss'), '@clone:boss');
+    t.same(runtime.logger.getEntries(), [], 'successful creation is quiet');
+    create('boss');
+    t.equal(runtime.logger.getEntries().pop().code, 'CLONE_ID_IN_USE');
+    runtime.runtimeOptions.maxClones = 2;
+    create('other');
+    t.equal(runtime.logger.getEntries().pop().code, 'CLONE_LIMIT');
+    runtime.runtimeOptions.maxClones = 300;
+    create('other', runtime.getTargetForStage());
+    t.equal(runtime.logger.getEntries().pop().code, 'CANNOT_CLONE_STAGE');
+    extension.createWithId({TARGET: 'missing', ID: 'other'}, {target: source});
+    t.equal(runtime.logger.getEntries().pop().code, 'CLONE_TARGET_NOT_FOUND');
+    runtime.logger.clear();
+    t.notOk(extension.exists({ID: '@clone:missing'}));
+    t.notOk(extension.exists({ID: ''}));
+    t.same(runtime.logger.getEntries(), []);
+    vm.quit();
+    t.end();
+});
+
+for (const enabled of [false, true]) {
+    test(`clone diagnostics identify the executing block with compiler enabled=${enabled}`, t => {
+        const {vm, runtime, source} = setup();
+        vm.extensionManager.loadExtensionIdSync('clones');
+        vm.setCompilerOptions({enabled});
+        source.blocks.createBlock({id: 'create-warning', opcode: 'clones_createWithId',
+            inputs: {TARGET: {name: 'TARGET', block: 'self'}, ID: {name: 'ID', block: 'invalid'}},
+            fields: {}, topLevel: true, shadow: false, parent: null, next: null});
+        for (const [id, value] of [['self', '_myself_'], ['invalid', '123']]) {
+            source.blocks.createBlock({id, opcode: 'text', inputs: {}, fields: {TEXT: {name: 'TEXT', value}},
+                topLevel: false, shadow: true, parent: 'create-warning', next: null});
+        }
+        const thread = runtime._pushThread('create-warning', source, {stackClick: true});
+        for (let i = 0; i < 5; i++) runtime._step();
+        t.equal(Boolean(thread.isCompiled), enabled);
+        const entries = runtime.logger.getEntries();
+        t.equal(entries.length, 1);
+        t.equal(entries[0].code, 'INVALID_CLONE_ID');
+        t.equal(entries[0].blockId, 'create-warning');
+        t.equal(entries[0].originalTargetId, source.id);
+        t.equal(runtime.lastCloneId, '');
+        vm.quit();
+        t.end();
+    });
+}
+
 test('public references are allocated without a GUI, immutable across clones and cleaned on every lifecycle', t => {
     const {vm, runtime, source, extension, create} = setup();
     t.equal(extension.id({}, {target: source}), '@sprite:Enemy');

@@ -2,6 +2,7 @@ const MathUtil = require('../util/math-util');
 const StringUtil = require('../util/string-util');
 const Cast = require('../util/cast');
 const Clone = require('../util/clone');
+const logCloneLimit = require('../util/log-clone-limit');
 const Target = require('../engine/target');
 const StageLayering = require('../engine/stage-layering');
 const ComponentModel = require('../components/model');
@@ -1134,13 +1135,17 @@ class RenderedTarget extends Target {
      */
     makeClone (options = {}) {
         if (!this.runtime.clonesAvailable() || this.isStage) {
+            if (!this.isStage) {
+                logCloneLimit(this.runtime, options.logContext?.subjectName || this.getName(), options.logContext);
+            }
+            if (options.onFailure) options.onFailure(this.isStage ? 'CANNOT_CLONE_STAGE' : 'CLONE_LIMIT');
             return null; // Hit max clone limit, or this is the stage.
         }
         this.runtime.changeCloneCounter(1);
         const cloneIndex = this.sprite.clones.length;
         let newClone;
         try {
-            newClone = this.sprite.createClone(null, options.cloneId);
+            newClone = this.sprite.createClone(null, options.cloneId, options.onFailure);
             if (!newClone) {
                 this.runtime.changeCloneCounter(-1);
                 return null;
