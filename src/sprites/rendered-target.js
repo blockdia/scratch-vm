@@ -1,3 +1,4 @@
+const GraphicGeometry = require('../util/graphic-geometry');
 const MathUtil = require('../util/math-util');
 const StringUtil = require('../util/string-util');
 const Cast = require('../util/cast');
@@ -116,6 +117,9 @@ class RenderedTarget extends Target {
          * @type {number}
          */
         this.size = 100;
+        this.stretch = {x: 100, y: 100};
+        this.nineSlice = null;
+        this.clipShape = null;
 
         /**
          * Currently selected costume index.
@@ -420,7 +424,56 @@ class RenderedTarget extends Target {
             const scaleFlip = (this.direction < 0) ? -1 : 1;
             finalScale = [scaleFlip * this.size, this.size];
         }
+        finalScale[0] *= this.stretch.x / 100;
+        finalScale[1] *= this.stretch.y / 100;
         return {direction: finalDirection, scale: finalScale};
+    }
+
+    setStretch (value) {
+        if (this.isStage || !value || !Number.isFinite(value.x) || !Number.isFinite(value.y)) return;
+        this.stretch = GraphicGeometry.stretch(value);
+        this.setDirection(this.direction);
+    }
+
+    setClipShape (value) {
+        if (this.isStage || (value !== null && !GraphicGeometry.validClip(value))) return;
+        this.clipShape = GraphicGeometry.copyClip(value);
+        this.updateAllDrawableProperties();
+    }
+
+    setNineSliceSize (value) {
+        if (this.isStage || (value !== null && !GraphicGeometry.dimensions(value))) return;
+        this.nineSlice = GraphicGeometry.dimensions(value);
+        this.updateAllDrawableProperties();
+    }
+
+    setNineSliceMargins (value, partName = '') {
+        const margins = GraphicGeometry.margins(value);
+        if (this.isStage || !margins) return;
+        if (this.component && partName === '_backgrounds_') {
+            for (const part of this.component.parts) {
+                if (part.name !== 'thumb') this.setNineSliceMargins(value, part.name);
+            }
+            return;
+        }
+        const part = this.component && this.component.parts.find(p => p.name === partName);
+        if (this.component && !part) return;
+        const index = part ? this.getCostumeIndexByName(part.costume) : this.currentCostume;
+        const costume = this.getCostumes()[index];
+        if (!costume) return;
+        costume.nineSlice = margins;
+        // Costumes are shared by runtime clones; source borders follow the costume.
+        for (const clone of this.sprite.clones) clone.updateAllDrawableProperties();
+    }
+
+    syncDrawableGeometry (id, costume, offset = [0, 0], slice = true) {
+        if (!this.renderer) return;
+        const nine = slice && this.nineSlice ?
+            {left: 0, right: 0, top: 0, bottom: 0, ...costume.nineSlice, ...this.nineSlice} : null;
+        if (this.renderer.updateDrawableNineSlice) this.renderer.updateDrawableNineSlice(id, nine);
+        else if (nine) throw new Error('Nine-slice requires an updated Blockdia renderer');
+        if (this.renderer.updateDrawableClipShape) this.renderer.updateDrawableClipShape(id, this.clipShape, offset);
+        else if (this.clipShape) throw new Error('Shape clipping requires an updated Blockdia renderer');
     }
 
     /**
@@ -591,6 +644,7 @@ class RenderedTarget extends Target {
         if (this.renderer) {
             const costume = this.sprite.costumes[this.currentCostume];
             this.renderer.updateDrawableSkinId(this.drawableID, costume.skinId);
+            this.syncDrawableGeometry(this.drawableID, costume);
 
             if (this.componentController) this.componentController.sync();
             if (this.visible) {
@@ -852,6 +906,7 @@ class RenderedTarget extends Target {
 
             const costume = this.getCostumes()[this.currentCostume];
             this.renderer.updateDrawableSkinId(this.drawableID, costume.skinId);
+            this.syncDrawableGeometry(this.drawableID, costume);
 
             for (const effectName in this.effects) {
                 if (!Object.prototype.hasOwnProperty.call(this.effects, effectName)) continue;
@@ -1154,6 +1209,9 @@ class RenderedTarget extends Target {
             newClone.draggable = this.draggable;
             newClone.visible = this.visible;
             newClone.size = this.size;
+            newClone.stretch = {...this.stretch};
+            newClone.nineSlice = this.nineSlice ? {...this.nineSlice} : null;
+            newClone.clipShape = GraphicGeometry.copyClip(this.clipShape);
             newClone.currentCostume = this.currentCostume;
             newClone.rotationStyle = this.rotationStyle;
             newClone.effects = Clone.simple(this.effects);
@@ -1199,6 +1257,9 @@ class RenderedTarget extends Target {
             newTarget.draggable = this.draggable;
             newTarget.visible = this.visible;
             newTarget.size = this.size;
+            newTarget.stretch = {...this.stretch};
+            newTarget.nineSlice = this.nineSlice ? {...this.nineSlice} : null;
+            newTarget.clipShape = GraphicGeometry.copyClip(this.clipShape);
             newTarget.currentCostume = this.currentCostume;
             newTarget.rotationStyle = this.rotationStyle;
             newTarget.effects = JSON.parse(JSON.stringify(this.effects));
@@ -1288,6 +1349,9 @@ class RenderedTarget extends Target {
             x: this.x,
             y: this.y,
             size: this.size,
+            stretch: {...this.stretch},
+            nineSlice: this.nineSlice ? {...this.nineSlice} : null,
+            clipShape: GraphicGeometry.copyClip(this.clipShape),
             direction: this.direction,
             draggable: this.draggable,
             currentCostume: this.currentCostume,

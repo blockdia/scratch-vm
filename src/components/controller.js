@@ -36,16 +36,47 @@ class ComponentController {
         return this.ids(true);
     }
 
+    partGeometry (part) {
+        const target = this.target;
+        const costume = target.getCostumes()[target.getCostumeIndexByName(part.costume)];
+        const source = target.renderer.getSkinSize(costume.skinId);
+        const origin = target.renderer.getSkinRotationCenter(costume.skinId);
+        const n = part.name !== 'thumb' && target.nineSlice &&
+            (costume.nineSlice || {left: 0, right: 0, top: 0, bottom: 0});
+        const size = n ? [Math.max(target.nineSlice.width, Math.min(source[0], n.left + n.right)),
+            Math.max(target.nineSlice.height, Math.min(source[1], n.top + n.bottom))] : source;
+        const center = [origin[0] * size[0] / Math.max(source[0], 0.01),
+            origin[1] * size[1] / Math.max(source[1], 0.01)];
+        return {source, origin, size, center, margins: n};
+    }
+
+    getTrack () {
+        const track = this.target.component.metadata.sliderTrack;
+        if (!track) return null;
+        const part = this.target.component.parts.find(p => p.name === 'track');
+        const {source, origin, size, center, margins} = this.partGeometry(part);
+        if (!margins) return track;
+        const axis = (p, length, output, start, end) => {
+            const factor = Math.min(1, length / Math.max(start + end, 1));
+            start *= factor;
+            end *= factor;
+            if (p <= start) return p;
+            if (p >= length - end) return output - length + p;
+            return start + ((p - start) * (output - start - end) / Math.max(0.01, length - start - end));
+        };
+        const map = p => [axis(p[0] + origin[0], source[0], size[0], margins.left, margins.right) - center[0],
+            center[1] - axis(origin[1] - p[1], source[1], size[1], margins.top, margins.bottom)];
+        return {start: map(track.start), end: map(track.end)};
+    }
+
     // Measure in unrotated costume coordinates, including the full thumb travel.
     // Size limits must not change with direction, effects, or the current value.
     getSize () {
         const target = this.target;
         const bounds = {left: Infinity, right: -Infinity, bottom: Infinity, top: -Infinity};
         for (const part of target.component.parts) {
-            const costume = target.getCostumes()[target.getCostumeIndexByName(part.costume)];
-            const [width, height] = target.renderer.getSkinSize(costume.skinId);
-            const [cx, cy] = target.renderer.getSkinRotationCenter(costume.skinId);
-            const track = target.component.metadata.sliderTrack;
+            const {size: [width, height], center: [cx, cy]} = this.partGeometry(part);
+            const track = this.getTrack();
             const positions = part.name === 'thumb' ? [track.start, track.end] : [[0, 0]];
             for (const [x, y] of positions) {
                 bounds.left = Math.min(bounds.left, x - cx);
@@ -77,7 +108,7 @@ class ComponentController {
         const angle = (90 - direction) * Math.PI / 180;
         const config = target.component;
         const p = config.properties;
-        const track = config.metadata.sliderTrack;
+        const track = this.getTrack();
         const ratio = track ? (p.value - p.min) / (p.max - p.min) : 0;
         for (const part of config.parts) {
             let x = 0;
@@ -105,6 +136,7 @@ class ComponentController {
             target.renderer.updateDrawablePosition(id, [target.x + (px * Math.cos(angle)) - (py * Math.sin(angle)),
                 target.y + (px * Math.sin(angle)) + (py * Math.cos(angle))]);
             target.renderer.updateDrawableDirectionScale(id, direction, scale);
+            target.syncDrawableGeometry(id, costume, [x, y], part.name !== 'thumb');
             target.renderer.updateDrawableClipPlane(id, clip);
             target.renderer.updateDrawableVisible(id, target.isEffectivelyVisible() && shown);
             for (const effect of Object.keys(target.effects)) {
@@ -154,7 +186,7 @@ class ComponentController {
         if (config.type === 'slider') {
             const point = this.localPoint(x, y);
             if (point) {
-                const {start, end} = config.metadata.sliderTrack;
+                const {start, end} = this.getTrack();
                 const dx = end[0] - start[0];
                 const dy = end[1] - start[1];
                 const ratio = Math.max(0, Math.min(1,

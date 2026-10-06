@@ -11,8 +11,5 @@ const normalize = value => {
     }
     return Object.keys(result).length ? result : null;
 };
-const validClip = value => value && ['left', 'right', 'bottom', 'top'].every(key => Number.isFinite(value[key])) &&
-    value.left <= value.right && value.bottom <= value.top;
-const copyClip = value => (validClip(value) ?
-    {left: value.left, right: value.right, bottom: value.bottom, top: value.top} : null);
+const {validClip, copyClip} = require('./graphic-geometry');
 module.exports = {names, normalize, validClip, copyClip};

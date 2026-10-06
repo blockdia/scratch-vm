@@ -1151,12 +1151,16 @@ class Blocks {
     updateContainerReferences (renamedPaths) {
         for (const block of Object.values(this._blocks)) {
             if (!['containers_menu_containers', 'containers_menu_ancestorContainers',
-                'containers_menu_coordinateSpaces']
+                'containers_menu_coordinateSpaces', 'clipping_menu_objects']
                 .includes(block.opcode)) continue;
             const field = block.fields.containers || block.fields.ancestorContainers ||
-                block.fields.coordinateSpaces;
-            if (field && field.value !== ContainerOption.SELF && renamedPaths.has(field.value)) {
-                field.value = renamedPaths.get(field.value);
+                block.fields.coordinateSpaces || block.fields.objects;
+            if (field && typeof field.value === 'string' && field.value !== ContainerOption.SELF) {
+                const prefix = !renamedPaths.has(field.value) &&
+                    field.value.startsWith(ContainerOption.ORIGINAL_PREFIX) ?
+                    ContainerOption.ORIGINAL_PREFIX : '';
+                const path = field.value.slice(prefix.length);
+                if (renamedPaths.has(path)) field.value = prefix + renamedPaths.get(path);
             }
         }
         this.resetCache();

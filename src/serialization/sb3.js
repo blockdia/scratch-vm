@@ -1,3 +1,4 @@
+const GraphicGeometry = require('../util/graphic-geometry');
 /**
  * @fileoverview
  * An SB3 serializer and deserializer. Parses provided
@@ -477,6 +478,7 @@ const serializeCostume = function (costume) {
     const costumeToSerialize = costume.broken || costume;
 
     obj.bitmapResolution = costumeToSerialize.bitmapResolution;
+    if (costume.nineSlice) obj.nineSlice = GraphicGeometry.margins(costume.nineSlice);
     obj.dataFormat = costumeToSerialize.dataFormat.toLowerCase();
 
     obj.assetId = costumeToSerialize.assetId;
@@ -633,6 +635,18 @@ const serializeTarget = function (target, extensions) {
         obj.x = target.x;
         obj.y = target.y;
         obj.size = target.size;
+        if (target.stretch && (target.stretch.x !== 100 || target.stretch.y !== 100)) {
+            obj.stretch = GraphicGeometry.stretch(target.stretch);
+            extensions.add('stretch');
+        }
+        if (target.nineSlice || target.costumes.some(c => c.nineSlice)) {
+            if (target.nineSlice) obj.nineSlice = GraphicGeometry.dimensions(target.nineSlice);
+            extensions.add('stretch');
+        }
+        if (target.clipShape) {
+            obj.clipShape = GraphicGeometry.copyClip(target.clipShape);
+            extensions.add('clipping');
+        }
         obj.direction = target.direction;
         obj.draggable = target.draggable;
         obj.rotationStyle = target.rotationStyle;
@@ -779,6 +793,7 @@ const serialize = function (runtime, targetId, {allowOptimization = true} = {}) 
     if (spriteContainers.length) {
         obj.spriteContainers = spriteContainers;
         extensions.add('containers');
+        if (spriteContainers.some(c => c.clip)) extensions.add('clipping');
     }
 
     obj.monitors = serializeMonitors(runtime.getMonitorState(), runtime, extensions);
@@ -1112,6 +1127,7 @@ const parseScratchAssets = function (object, runtime, zip) {
             name: costumeSource.name,
             bitmapResolution: costumeSource.bitmapResolution,
             rotationCenterX: costumeSource.rotationCenterX,
+            nineSlice: GraphicGeometry.margins(costumeSource.nineSlice),
             rotationCenterY: costumeSource.rotationCenterY
         };
         const dataFormat =
@@ -1377,6 +1393,15 @@ const parseScratchObject = function (object, runtime, extensions, zip, assets) {
     }
     if (Object.prototype.hasOwnProperty.call(object, 'extensionStorage')) {
         target.extensionStorage = object.extensionStorage;
+    }
+    if (!target.isStage) {
+        target.stretch = GraphicGeometry.stretch(object.stretch);
+        target.nineSlice = GraphicGeometry.dimensions(object.nineSlice);
+        target.clipShape = GraphicGeometry.copyClip(object.clipShape);
+        if (object.stretch || object.nineSlice || (object.costumes || []).some(c => c.nineSlice)) {
+            extensions.extensionIDs.add('stretch');
+        }
+        if (target.clipShape) extensions.extensionIDs.add('clipping');
     }
     Promise.all(costumePromises).then(costumes => {
         sprite.costumes = costumes;
@@ -1652,6 +1677,7 @@ const deserialize = async function (json, runtime, zip, isSingleSprite) {
         .then(targets => {
             if (!isSingleSprite) {
                 runtime.spriteContainers.load(json.spriteContainers);
+                if ((json.spriteContainers || []).some(c => c.clip)) extensions.extensionIDs.add('clipping');
                 if (targets.some(target => runtime.spriteContainers.getTargetContainers(target).length)) {
                     extensions.extensionIDs.add('containers');
                 }

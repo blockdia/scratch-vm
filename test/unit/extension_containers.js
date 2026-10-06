@@ -146,6 +146,9 @@ test('menus replace the current name with a relative choice and rename only name
         ['delete', 'containers_menu_ancestorContainers', 'ancestorContainers', 'A'],
         ['frame', 'containers_menu_coordinateSpaces', 'coordinateSpaces', 'A//N'],
         ['relative-frame', 'containers_menu_coordinateSpaces', 'coordinateSpaces', ContainerOption.SELF],
+        ['clip-container', 'clipping_menu_objects', 'objects', '@container:A//N'],
+        ['clip-self', 'clipping_menu_objects', 'objects', '_myself_'],
+        ['clip-current', 'clipping_menu_objects', 'objects', ContainerOption.SELF],
         ['literal', 'text', 'TEXT', 'A//N']
     ]) {
         target.blocks.createBlock({id,
@@ -166,6 +169,9 @@ test('menus replace the current name with a relative choice and rename only name
     t.equal(target.blocks.getBlock('frame').fields.coordinateSpaces.value, 'B//N');
     t.equal(target.blocks.getBlock('relative-frame').fields.coordinateSpaces.value, ContainerOption.SELF);
     t.equal(target.blocks.getBlock('self').fields.containers.value, ContainerOption.SELF);
+    t.equal(target.blocks.getBlock('clip-container').fields.objects.value, '@container:B//N');
+    t.equal(target.blocks.getBlock('clip-self').fields.objects.value, '_myself_');
+    t.equal(target.blocks.getBlock('clip-current').fields.objects.value, ContainerOption.SELF);
     t.equal(target.blocks.getBlock('literal').fields.TEXT.value, 'A//N');
     vm.quit();
     t.end();

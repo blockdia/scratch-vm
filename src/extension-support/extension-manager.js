@@ -10,6 +10,8 @@ const SecurityManager = require('./tw-security-manager');
 // TODO: change extension spec so that library info, including extension ID, can be collected through static methods
 
 const defaultBuiltinExtensions = {
+    stretch: () => require('../extensions/scratch3_stretch'),
+    clipping: () => require('../extensions/scratch3_clipping'),
     components: () => require('../extensions/scratch3_components'),
     containers: () => require('../extensions/scratch3_containers'),
     clones: () => require('../extensions/scratch3_clones'),
