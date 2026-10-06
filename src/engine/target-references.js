@@ -21,7 +21,7 @@ class TargetReferences {
             ContainerOption.isReference(value));
     }
 
-    register (target, requestedId = '') {
+    register (target, requestedId = '', onFailure = () => {}) {
         if (!target.isOriginal && this.targets.get(target.publicId) === target) return true;
         let reference;
         if (target.isStage) {
@@ -31,10 +31,16 @@ class TargetReferences {
         } else {
             const id = Cast.toString(requestedId);
             // Only an empty suffix requests an automatic ID; invalid custom IDs fail without allocation.
-            if (id.trim() !== id || /^\d+$/.test(id) || TargetReferences.isReference(id)) return false;
+            if (id.trim() !== id || /^\d+$/.test(id) || TargetReferences.isReference(id)) {
+                onFailure('INVALID_CLONE_ID');
+                return false;
+            }
             reference = CLONE_PREFIX + (id || this.nextCloneId++);
         }
-        if (this.targets.has(reference) && this.targets.get(reference) !== target) return false;
+        if (this.targets.has(reference) && this.targets.get(reference) !== target) {
+            onFailure('CLONE_ID_IN_USE');
+            return false;
+        }
         // Reindex renamed originals without retaining aliases or changing clone identities.
         if (this.targets.get(target.publicId) === target) this.targets.delete(target.publicId);
         target.publicId = reference;

@@ -9,6 +9,17 @@ const formatMessage = require('format-message');
 
 const text = (id, defaultMessage) => formatMessage({id: `containers.${id}`, default: defaultMessage});
 const numericProperties = ['x', 'y', 'size', 'direction'];
+const creationWarnings = {
+    INVALID_CLONE_ID: {
+        id: 'containers.invalidCloneId',
+        default: 'Cannot create container clone: ID "{id}" must not contain leading or trailing whitespace, ' +
+            'consist only of digits, or start with a reserved reference prefix.'
+    },
+    CLONE_ID_IN_USE: {
+        id: 'containers.cloneIdInUse',
+        default: 'Cannot create container clone: ID "@container-clone:{id}" is already in use.'
+    }
+};
 
 class Containers {
     constructor (runtime) {
@@ -414,7 +425,21 @@ class Containers {
         this.runtime.lastContainerCloneId = '';
         const container = this._container(args.CONTAINER, util);
         if (!container) return;
-        const clones = this.runtime.spriteContainers.createClone(container.path, {cloneId, startHats: false});
+        const context = {...this.runtime.logger.captureContext(util.thread),
+            targetId: util.target.id,
+            source: 'containers',
+            subjectName: container.path};
+        const clones = this.runtime.spriteContainers.createClone(container.path, {
+            cloneId,
+            startHats: false,
+            logContext: context,
+            onFailure: code => {
+                // Capacity failures are already logged by the shared VM creation path.
+                if (creationWarnings[code]) {
+                    this.runtime.logger.warn(formatMessage(creationWarnings[code], {id: cloneId}), {...context, code});
+                }
+            }
+        });
         // Preserve compiler execution context when a clone-start hat runs immediately.
         clones.forEach(target => (util.startHats ? util.startHats('control_start_as_clone', null, target) :
             this.runtime.startHats('control_start_as_clone', null, target)));
