@@ -24,6 +24,7 @@ class SpriteContainers {
         this.cloneDefinitions = new Map();
         this.cloneReferences = new Map();
         this.nextCloneId = 1;
+        this._matrixCache = new WeakMap();
         this.depth = 0;
         this.syncing = false;
         this.active = false;
@@ -291,14 +292,14 @@ class SpriteContainers {
     getCoordinateMatrix (path, target) {
         let chain;
         if (path === ContainerOption.SELF) {
-            chain = target ? this.getTargetContainers(target) : [];
+            chain = target ? this._getTargetContainers(target) : [];
         } else {
             const id = this.resolveReference(path);
             if (id === null) return null;
             chain = this.getAncestry(id).map(key => this.definitions.get(key) || this.cloneDefinitions.get(key));
         }
         return chain.reduce((parent, container) =>
-            Transform.multiply(parent, Transform.matrix(container.transform, container.stretch, container.geometry)),
+            Transform.multiply(parent, this._localMatrix(container)),
         Transform.identity);
     }
 
@@ -332,8 +333,31 @@ class SpriteContainers {
         return result.every(Number.isFinite) ? result : null;
     }
 
-    // The same membership drives rendering, visibility and the editor's layer tree.
+    // Geometry, stretch and transform are replaced by setters, never mutated in place.
+    _localMatrix (container) {
+        const definition = container.id ? this.definitions.get(container.id) ||
+            this.cloneDefinitions.get(container.id) : container;
+        const previous = this._matrixCache.get(definition);
+        const {transform, stretch, geometry} = definition;
+        if (previous && previous.transform === transform && previous.stretch === stretch &&
+            previous.geometry === geometry) return previous.matrix;
+        const matrix = Transform.matrix(transform, stretch, geometry);
+        this._matrixCache.set(definition, {transform, stretch, geometry, matrix});
+        return matrix;
+    }
+
+    // Public snapshots stay independent; synchronization uses the immutable internal values.
     getTargetContainers (target) {
+        return this._getTargetContainers(target).map(container => ({...container,
+            ...(container.effects ? {effects: {...container.effects}} : {}),
+            ...(container.clip ? {clip: {...container.clip}} : {}),
+            ...(container.stretch ? {stretch: {...container.stretch}} : {}),
+            ...(container.geometry ? {geometry: Geometry.container(container.geometry)} : {}),
+            ...(container.transform ? {transform: {...container.transform}} : {})}));
+    }
+
+    // The same membership drives rendering, visibility and the editor's layer tree.
+    _getTargetContainers (target) {
         if (target.isStage) return [];
         return (target._containerClonePaths || ancestors(target.getName())).map(id => {
             const instance = this.cloneDefinitions.get(id);
@@ -342,11 +366,11 @@ class SpriteContainers {
                 publicId: this.getPublicId(id),
                 path: instance ? instance.path : id,
                 visible: definition.visible,
-                ...(definition.effects ? {effects: {...definition.effects}} : {}),
-                ...(definition.clip ? {clip: {...definition.clip}} : {}),
-                ...(definition.stretch ? {stretch: {...definition.stretch}} : {}),
-                ...(definition.geometry ? {geometry: Geometry.container(definition.geometry)} : {}),
-                ...(definition.transform ? {transform: {...definition.transform}} : {}),
+                ...(definition.effects ? {effects: definition.effects} : {}),
+                ...(definition.clip ? {clip: definition.clip} : {}),
+                ...(definition.stretch ? {stretch: definition.stretch} : {}),
+                ...(definition.geometry ? {geometry: definition.geometry} : {}),
+                ...(definition.transform ? {transform: definition.transform} : {}),
                 isClone: Boolean(instance)} : null;
         }).filter(Boolean);
     }
@@ -518,7 +542,7 @@ class SpriteContainers {
             const used = new Set();
             for (const target of targets) {
                 if (target.isStage) continue;
-                const definitions = this.getTargetContainers(target);
+                const definitions = this._getTargetContainers(target);
                 const containers = definitions.map(container => container.id);
                 containers.forEach(id => used.add(id));
                 const visible = definitions.every(container => container.visible);
@@ -529,7 +553,7 @@ class SpriteContainers {
                 const drawables = target.getDrawableIDs();
                 const matrix = definitions.reduce((parent, container) => {
                     const world = Transform.multiply(parent,
-                        Transform.matrix(container.transform, container.stretch, container.geometry));
+                        this._localMatrix(container));
                     appearances.set(container.id, {id: container.id,
                         matrix: world,
                         effects: container.effects,
@@ -537,10 +561,14 @@ class SpriteContainers {
                         geometry: container.geometry});
                     return world;
                 }, Transform.identity);
-                const geometryKey = JSON.stringify(definitions.map(c => c.geometry));
-                const changed = !target._containerTransform || geometryKey !== target._containerGeometryKey ||
+                const geometries = definitions.map(c => [c.id, c.geometry]);
+                const previousGeometry = target._containerGeometries;
+                const changed = !target._containerTransform || !previousGeometry ||
+                    geometries.length !== previousGeometry.length ||
+                    geometries.some((entry, i) => entry[0] !== previousGeometry[i][0] ||
+                        entry[1] !== previousGeometry[i][1]) ||
                     matrix.some((n, i) => n !== target._containerTransform[i]);
-                target._containerGeometryKey = geometryKey;
+                target._containerGeometries = geometries;
                 // The first synchronization initializes new targets (including pen-down clones).
                 const previousPosition = changed && target._containerTransform && target.onTargetMoved ?
                     target.getWorldPosition() : null;
